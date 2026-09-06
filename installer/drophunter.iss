@@ -334,13 +334,13 @@ begin
   Aproveitou := False;
   if FileExists(Arquivo) then
     try
-      Aproveitou := LoadStringsFromUTF8File(Arquivo, Linhas);
+      Aproveitou := LoadStringsFromFile(Arquivo, Linhas);
     except
       Aproveitou := False;  { arquivo ilegivel nao pode derrubar a instalacao }
     end;
   if not Aproveitou then begin
     SetArrayLength(Linhas, 1);
-    Linhas[0] := '# DropHunter Agent — config privada; não compartilhe.';
+    Linhas[0] := '# DropHunter Agent - config privada; nao compartilhe.';
   end;
   DefinirCampo(Linhas, 'licenca', ComoTexto(Trim(PagLicenca.Values[0])), False);
   DefinirCampo(Linhas, 'empire_api_key', ComoTexto(Trim(PagEmpire.Values[0])), False);
