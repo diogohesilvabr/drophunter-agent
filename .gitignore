@@ -1,9 +1,11 @@
+__pycache__/
+*.py[cod]
 .venv/
 dist/
 build/_work/
 *.egg-info/
-__pycache__/
 .pytest_cache/
 .ruff_cache/
+# config local NUNCA entra no repo (fica em ~/.drophunter/agent.toml)
 agent.toml
-*.log
+*.bak-*

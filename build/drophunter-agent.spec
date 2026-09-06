@@ -20,7 +20,9 @@ ENTRADA = os.path.join(SPECPATH, "entry.py")
 ocultos = sorted(
     set(collect_submodules("engineio"))
     | set(collect_submodules("socketio"))
-    | {"aiohttp", "engineio.async_drivers.aiohttp", "drophunter_agent"}
+    | {"aiohttp", "aiohttp.client_ws", "socketio.async_client", "engineio.async_client",
+       "engineio.async_drivers.aiohttp", "drophunter_agent.canal", "drophunter_agent.proxy",
+       "drophunter_agent.empire_ws", "drophunter_agent.listabranca"}
 )
 
 a = Analysis(

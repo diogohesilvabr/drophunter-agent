@@ -8,6 +8,7 @@ pra redigir, o texto e substituido inteiro.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -34,8 +35,6 @@ class Redator:
         if not segredo:
             return
         segredo = str(segredo)
-        if len(segredo) < 4:  # curto demais pra ser segredo; redigir viraria ruido
-            return
         if segredo not in self._segredos:
             self._segredos.append(segredo)
             # maiores primeiro, pra um segredo que contem outro nao deixar resto
@@ -62,10 +61,60 @@ class Redator:
         if isinstance(obj, str):
             return self.texto(obj)
         if isinstance(obj, dict):
-            return {str(k): self.estrutura(v) for k, v in obj.items()}
+            return {
+                self.texto(k): MASCARA if self._sensivel(k) else self.estrutura(v)
+                for k, v in obj.items()
+            }
         if isinstance(obj, (list, tuple)):
             return [self.estrutura(v) for v in obj]
         return obj
+
+    @staticmethod
+    def _sensivel(chave: Any) -> bool:
+        nome = re.sub(r"[^a-z0-9]", "", str(chave).lower())
+        return nome in {
+            "key",
+            "apikey",
+            "empireapikey",
+            "steamapikey",
+            "licenca",
+            "authorization",
+            "authorizationtoken",
+            "token",
+            "sockettoken",
+            "socketsignature",
+            "signature",
+            "password",
+            "senha",
+            "secret",
+            "accesstoken",
+            "refreshtoken",
+            "cookie",
+            "setcookie",
+        }
+
+    def registrar_credenciais(self, obj: Any) -> None:
+        if isinstance(obj, dict):
+            for chave, valor in obj.items():
+                if self._sensivel(chave) and isinstance(valor, str):
+                    self.adicionar(valor)
+                else:
+                    self.registrar_credenciais(valor)
+        elif isinstance(obj, (list, tuple)):
+            for valor in obj:
+                self.registrar_credenciais(valor)
+
+    def corpo(self, texto: str) -> str:
+        """Mantém o texto cru, exceto quando o JSON contém credencial."""
+        try:
+            obj = json.loads(texto)
+        except (ValueError, RecursionError):
+            return self.texto(texto)
+        self.registrar_credenciais(obj)
+        limpo = self.estrutura(obj)
+        if limpo != obj:
+            return json.dumps(limpo, ensure_ascii=False)
+        return self.texto(texto)
 
     def contem_segredo(self, valor: Any) -> bool:
         s = valor if isinstance(valor, str) else str(valor)

@@ -1,7 +1,7 @@
 [project]
 name = "drophunter-agent"
-version = "4.0.0a1"
-description = "Agente DropHunter: roda no PC do cliente, guarda a chave do Empire e executa o que o servidor manda"
+version = "4.0.0a2"
+description = "Agente DropHunter: roda no PC do cliente, proxy Empire/Steam com chave local e lista branca"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
@@ -9,6 +9,7 @@ authors = [{ name = "Diogo Hesilva" }]
 dependencies = [
     "httpx>=0.27",
     "python-socketio[asyncio_client]>=5.11",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]

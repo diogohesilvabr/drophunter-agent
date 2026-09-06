@@ -4,6 +4,72 @@
 > com quem falar); cada decisao esta marcada pra ser revista se o servidor (CODER A)
 > tiver feito diferente.
 
+## [GPT/JayFlow] — Frente B: proxy v2, 06/09/2026 — 4.0.0a2
+
+Substituído o transporte HTTP/long-poll e executor tipado pelo agente-proxy do
+PROTOCOLO.md v2. As entradas antigas abaixo são histórico do desenho descartado.
+
+- Novos `canal.py`, `proxy.py`, `listabranca.py`, `empire_ws.py`: WebSocket aiohttp,
+  licença no cabeçalho, HTTP httpx sem redirects, 23 rotas permitidas, oito chamadas
+  simultâneas, timeout incluindo fila e respostas limitadas a 1 MiB.
+- Socket.io com handshake local do v3; todos os eventos de aplicação passam crus,
+  com buffer de 60 s e teto de 20 mil eventos/16 MiB. `ws_emit` só permite `filters`.
+- API da extensão passa a usar `ext_request`/`ext_response`; sem canal responde 503,
+  espera máxima de 25 s resulta em 504. Removidos cache e interpretação local.
+- Config/CLI preservam init/run/status, Basic auth e permissões; padrão WSS,
+  `steam_id64` opcional e `local_api_port` canônico, com leitura do nome antigo.
+  GetPassWarning interrompe init antes de qualquer fallback com eco.
+- Redação cobre valores, nomes de campos e tokens do socket; metadata truncado é
+  descartado porque pode conter credenciais novas que não chegaram a ser parseadas.
+- POST Steam converte objeto para formulário com `key` local, compatível com o v3.
+- Removidos `commands.py`, `empire.py`, `server.py` antigos. Atualizados README,
+  spec PyInstaller e demonstração `examples/servidor_falso.py` sem APIs reais.
+
+Validação: 105 testes passando (54 lista branca, 15 proxy, 25 canal/config/CLI,
+11 API local), executados por arquivo; Ruff limpo. Demonstração fake completou
+hello, heartbeat, eventos, HTTP permitido e recusa de tip. Build Linux concluído;
+binário retorna `4.0.0a2` e status sem config sai com código 2. Windows depende
+posteriormente do workflow; nenhuma tag ou publicação foi feita.
+
+Detalhes de decisões, furos e integração: `docs/changes-v4/B-agente-proxy.md` no
+checkout privado. Nenhum arquivo de produção ou de outra frente foi alterado.
+
+## [Claude/VM] - API local pra extensao Chrome (coder G, 06/09) — versao 4.0.0a2
+
+O agente agora sobe, junto com o loop, um servidor HTTP em `http://127.0.0.1:8765`
+(`drophunter_agent/local_api.py`, aiohttp — ja vinha no binario pelo Socket.IO) com
+EXATAMENTE as rotas que a extensao Chrome do bot atual consome (`background.js`):
+
+    GET  /api/bot/status                          local ("testar" da extensao)
+    POST /api/extension/ping                      -> POST /api/agent/extension/ping
+    GET  /api/deliveries/expected                 -> GET  /api/agent/deliveries/expected (cache 5 s)
+    POST /api/deliveries/received?items=<json>    -> POST /api/agent/deliveries/received {items[, offerid]}
+    POST /api/deliveries/suspect?offerid=&got=    -> POST /api/agent/deliveries/suspect {offerid, got}
+    GET  /api/sends/pending                       -> GET  /api/agent/sends/pending (cache 5 s)
+    POST /api/sends/{id}/done[?tradeofferid=]     -> POST /api/agent/sends/{id}/done
+    POST /api/sends/{id}/cancelled?had_offer=0|1  -> POST /api/agent/sends/{id}/cancelled
+
+Respostas no formato do bot (`{items, count}`, `{sends, cancels}`, `{ok, done}`...; o
+`server_time` do protocolo NAO vai pra extensao). Cache de 5 s com single-flight em
+`expected`/`sends` (invalidado por received/done/cancelled). Servidor fora ou 401 ->
+503 local -> a extensao retem tudo (fail-closed). Porta ocupada -> log de erro e o agente
+segue sem a API (nao derruba o hello/feed).
+
+**Config (`agent.toml`)**: `api_local_porta` (8765; 0 desliga), `api_local_usuario`
+(`drophunter`), `api_local_senha` (gerada no `init`, `secrets.token_urlsafe(12)`; vazia =
+sem auth; entra nos segredos do redator). Config antiga sem os campos continua valendo
+(porta padrao, sem senha). `init [--porta-local N] [--sem-senha-local]` imprime, no fim,
+o bloco "Extensao Chrome" com URL, usuario e senha pra colar nas opcoes da extensao;
+`status` mostra a API local sem a senha.
+
+**Zero custodia continua**: as chamadas ao servidor vao pelo `ServidorClient` (redige +
+barreira); teste `test_nenhuma_chave_em_nenhuma_requisicao_nem_resposta` envenena o
+corpo com a chave e prova que nao sai; a senha local nunca vai pro servidor (so a licenca).
+
+**Testes**: `tests/test_agent_local_api_v4.py` (19) — cliente HTTP real contra porta
+efemera, servidor fake; `tests/test_agent_v4.py` (26) intacto. Binario regenerado
+(`build/build.sh`, `--version` -> 4.0.0a2). `pyproject`: dep explicita `aiohttp>=3.9`.
+
 ## [Claude/VM] - Fase 3 adiantada: agente `drophunter_agent` em `agent/` (06/09)
 
 Nasceu `agent/`: pacote Python **`drophunter_agent`** com pyproject proprio, pronto pra
