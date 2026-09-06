@@ -1,6 +1,16 @@
-# Gera o binario do agente para Linux e Windows e publica nos Releases.
-# Sem segredo: usa so o GITHUB_TOKEN automatico do proprio workflow.
-# Dispara em tag v* (ex.: git tag v4.0.0 && git push --tags) ou manualmente.
+# Gera o instalador Windows, o app sem console, os binarios de linha de comando e publica
+# nos Releases. Sem segredo: usa so o GITHUB_TOKEN automatico do proprio workflow.
+#
+# Dispara em tag v* (ex.: git tag vX.Y.Z && git push --tags) -> Release completo.
+# Dispara manualmente (workflow_dispatch) -> so artefatos, sem Release: e assim que se
+# valida o Inno Setup sem queimar uma tag.
+#
+# Artefatos publicados no Release:
+#   DropHunter-Setup-<versao>.exe   instalador (o que o cliente baixa)
+#   DropHunter-Setup.exe            copia sem versao no nome, pro link "latest" do site
+#   drophunter-agent-windows-x86_64.exe   linha de comando (avancado)
+#   drophunter-agent-linux-x86_64         linha de comando (servidor)
+#   SHA256SUMS.txt
 name: build
 
 on:
@@ -12,18 +22,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artefato: drophunter-agent
-            saida: drophunter-agent-linux-x86_64
-          - os: windows-latest
-            artefato: drophunter-agent.exe
-            saida: drophunter-agent-windows-x86_64.exe
-    runs-on: ${{ matrix.os }}
+  # ------------------------------------------------------------------ Linux (como antes)
+  linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -45,25 +46,115 @@ jobs:
         run: python -m PyInstaller build/drophunter-agent.spec --distpath dist --workpath build/_work --noconfirm --clean
 
       - name: Fumaca do binario
-        shell: bash
         run: |
-          ./dist/${{ matrix.artefato }} --version
+          ./dist/drophunter-agent --version
           set +e
-          DROPHUNTER_HOME=/nao/existe ./dist/${{ matrix.artefato }} status
+          DROPHUNTER_HOME=/nao/existe ./dist/drophunter-agent status
           [ $? -eq 2 ] || { echo "status sem config deveria sair com 2"; exit 1; }
 
       - name: Renomear
-        shell: bash
-        run: mv dist/${{ matrix.artefato }} dist/${{ matrix.saida }}
+        run: mv dist/drophunter-agent dist/drophunter-agent-linux-x86_64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.saida }}
-          path: dist/${{ matrix.saida }}
+          name: drophunter-agent-linux-x86_64
+          path: dist/drophunter-agent-linux-x86_64
           if-no-files-found: error
 
+  # -------------------------------------------- Windows: app sem console + CLI + instalador
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A versao mora em drophunter_agent/__init__.py e em lugar nenhum mais.
+      - name: Ler a versao do pacote
+        id: versao
+        run: echo "v=$(python build/versao.py)" >> "$GITHUB_OUTPUT"
+
+      # O app com janela e da frente W1. Sem ele, para aqui dizendo por que.
+      - name: Conferir se o app com janela existe
+        run: |
+          if [ ! -f drophunter_agent/app.py ]; then
+            echo "::error::drophunter_agent/app.py nao existe: aguardando a frente W1 (app com janela + bandeja). Nada a empacotar."
+            exit 1
+          fi
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          # [app] = pywebview/pystray/Pillow (extra declarado no pyproject pela frente W1);
+          # o Pillow tambem e quem gera o .ico e os .bmp do assistente.
+          python -m pip install ".[dev,app]"
+
+      - name: Testes rapidos do pacote
+        run: |
+          python -c "import drophunter_agent, drophunter_agent.agent; print(drophunter_agent.__version__)"
+          python -m drophunter_agent --version
+
+      - name: Gerar o icone e as imagens do assistente
+        run: |
+          python build/icone/gerar_ico.py
+          python build/icone/gerar_bmp.py
+
+      - name: Gerar o app sem console (onedir)
+        run: python -m PyInstaller build/drophunter-app.spec --distpath dist --workpath build/_work --noconfirm --clean
+
+      - name: Gerar a versao de linha de comando
+        run: python -m PyInstaller build/drophunter-agent.spec --distpath dist --workpath build/_work --noconfirm
+
+      - name: Fumaca da linha de comando
+        run: |
+          ./dist/drophunter-agent.exe --version
+          set +e
+          DROPHUNTER_HOME=/nao/existe ./dist/drophunter-agent.exe status
+          [ $? -eq 2 ] || { echo "status sem config deveria sair com 2"; exit 1; }
+
+      - name: Conferir o que o instalador vai empacotar
+        run: |
+          test -f "dist/DropHunter Agent/DropHunterAgent.exe" || { echo "app sem console nao saiu"; exit 1; }
+          test -f dist/drophunter-agent.exe || { echo "CLI nao saiu"; exit 1; }
+          test -f build/icone/drophunter.ico || { echo "icone nao saiu"; exit 1; }
+          for bmp in wizard-grande wizard-grande-2x wizard-pequeno wizard-pequeno-2x; do
+            test -f "build/icone/$bmp.bmp" || { echo "imagem $bmp do assistente nao saiu"; exit 1; }
+          done
+
+      - name: Instalar o Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compilar o instalador
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "ISCC.exe" }
+          & $iscc /DVersao=${{ steps.versao.outputs.v }} installer\drophunter.iss
+
+      - name: Juntar a entrega
+        run: |
+          mkdir -p entrega
+          cp "dist/DropHunter-Setup-${{ steps.versao.outputs.v }}.exe" entrega/
+          # Copia sem a versao no nome: e o que o site linka em releases/latest/download/.
+          cp "dist/DropHunter-Setup-${{ steps.versao.outputs.v }}.exe" entrega/DropHunter-Setup.exe
+          cp dist/drophunter-agent.exe entrega/drophunter-agent-windows-x86_64.exe
+          ls -la entrega
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: entrega/*
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------------------ Release
   release:
-    needs: build
+    needs: [linux, windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

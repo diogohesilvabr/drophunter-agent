@@ -60,9 +60,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.comando is None:
-        # Duplo clique no .exe (ou `drophunter-agent` sem nada): o usuario nunca edita
-        # arquivo. Primeira vez -> assistente pede licenca e chave e ja conecta.
-        return _assistente(args.config)
+        from drophunter_agent.app import main_app
+
+        return main_app(args.config)
     try:
         if args.comando == "init":
             return cmd_init(

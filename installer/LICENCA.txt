@@ -1,0 +1,40 @@
+DropHunter Agent — termos de uso
+================================
+
+Software proprietário. Copyright (c) 2026 DropHunter. Todos os direitos reservados.
+
+Uso permitido
+-------------
+Você pode instalar e usar o DropHunter Agent nos seus próprios computadores enquanto
+tiver uma licença ativa do DropHunter (www.drophunter.com.br). A licença é pessoal e
+intransferível.
+
+Uso não permitido
+-----------------
+Redistribuir, revender, alugar, descompilar, alterar ou criar obras derivadas deste
+programa, ou usá-lo para operar a conta de terceiros sem autorização.
+
+Suas chaves e seus dados
+------------------------
+O agente guarda as suas credenciais (chave do Empire, chave da Steam) apenas no seu
+computador. O DropHunter não recebe, não armazena e não tem como recuperar essas
+chaves. Você é o único responsável por guardá-las.
+
+Sem garantia
+------------
+O programa é fornecido "como está", sem garantia de qualquer natureza, expressa ou
+implícita. O DropHunter é uma ferramenta de automação de negociação: NÃO há promessa
+de lucro, e as decisões e os riscos das operações são seus. Na extensão máxima
+permitida em lei, o DropHunter não responde por perdas, lucros cessantes, prejuízos
+diretos ou indiretos decorrentes do uso do programa.
+
+Serviços de terceiros
+---------------------
+O uso do CSGOEmpire e da Steam é regido pelos termos dessas plataformas. Cabe a você
+cumpri-los.
+
+Foro
+----
+Legislação brasileira.
+
+(Texto provisório: o contrato final de licença é decisão do titular do produto.)

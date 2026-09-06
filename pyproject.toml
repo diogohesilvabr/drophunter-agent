@@ -1,6 +1,6 @@
 [project]
 name = "drophunter-agent"
-version = "4.0.0a4"
+version = "4.0.0b1"
 description = "Agente DropHunter: roda no PC do cliente, proxy Empire/Steam com chave local e lista branca"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# App com janela e bandeja (Windows do cliente e desktop Linux). Servidor sem GTK/Qt roda o
+# agente de console sem instalar nada disto: `app.py` importa tarde e cai no navegador.
+app = [
+    "pywebview>=5.0",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -23,6 +30,7 @@ dev = [
 
 [project.scripts]
 drophunter-agent = "drophunter_agent.cli:main"
+drophunter = "drophunter_agent.app:main_app"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -30,6 +38,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["drophunter_agent*"]
+
+[tool.setuptools.package-data]
+drophunter_agent = ["ui/*.html", "ui/*.css", "ui/*.js", "ui/assets/*.png"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

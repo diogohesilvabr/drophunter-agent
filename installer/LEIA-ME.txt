@@ -1,0 +1,42 @@
+DropHunter Agent — leia-me
+==========================
+
+O que é isto
+------------
+O DropHunter Agent é o programa que liga o DropHunter (www.drophunter.com.br) à sua
+conta do CSGOEmpire. Ele fica rodando no seu computador e faz as chamadas ao Empire
+e à Steam em nome do robô.
+
+Onde ficam as suas chaves
+-------------------------
+Neste computador, e só aqui: na pasta ".drophunter" dentro da sua conta de usuário
+(C:\Users\<você>\.drophunter). A chave do Empire NUNCA é enviada para o nosso
+servidor. Se você desinstalar o agente, essa pasta continua onde está — a chave é sua.
+
+Como usar
+---------
+1. A licença e as chaves você já informou durante a instalação: elas ficaram
+   gravadas na pasta ".drophunter" da sua conta de usuário.
+2. Abra o "DropHunter Agent" (menu Iniciar). A janela mostra "Conectado" e o
+   ícone fica ao lado do relógio (bandeja). Ícone aceso = conectado.
+3. Para trocar uma chave depois, use "Configurações" dentro do próprio app.
+4. Acompanhe tudo pelo painel no site, inclusive do celular.
+
+Enquanto o computador estiver desligado, o robô fica parado. Isso é assim de propósito:
+sem o agente ligado, ninguém — nem nós — consegue usar a sua chave.
+
+Versão de linha de comando
+--------------------------
+Na mesma pasta da instalação existe o "drophunter-agent.exe", a versão de terminal
+(mesmo agente, sem janela). Use "drophunter-agent.exe --help" se quiser rodar em
+servidor ou por script.
+
+Aviso do Windows na primeira execução
+-------------------------------------
+O instalador ainda não é assinado com certificado, então o Windows pode mostrar
+"O Windows protegeu o seu computador". Clique em "Mais informações" e depois em
+"Executar assim mesmo".
+
+Suporte
+-------
+www.drophunter.com.br

@@ -32,3 +32,27 @@ def configurar_log(nivel: str = "INFO", stream=None) -> logging.Logger:
     for nome in ("httpx", "httpcore", "engineio", "socketio", "aiohttp", "asyncio"):
         logging.getLogger(nome).setLevel(logging.WARNING)
     return logging.getLogger("drophunter")
+
+
+def configurar_log_arquivo(pasta):
+    """Modo sem console: rotação local com o mesmo redator de todos os logs."""
+    import os
+    from logging.handlers import RotatingFileHandler
+    from pathlib import Path
+
+    pasta = Path(pasta)
+    pasta.mkdir(parents=True, exist_ok=True, mode=0o700)
+    arquivo = pasta / "drophunter.log"
+    fd = os.open(arquivo, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    os.close(fd)
+    logger = configurar_log()
+    raiz = logging.getLogger()
+    for handler in list(raiz.handlers):
+        raiz.removeHandler(handler)
+        handler.close()
+    handler = RotatingFileHandler(
+        arquivo, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    handler.setFormatter(FormatadorRedigido("%(asctime)s %(nivel_br)-5s %(message)s"))
+    raiz.addHandler(handler)
+    return logger

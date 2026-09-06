@@ -1,4 +1,4 @@
-# DropHunter Agent 4.0.0a4
+# DropHunter Agent
 
 O agente roda no seu PC e faz a ponte entre o DropHunter e o Empire/Steam.
 As chaves ficam no `agent.toml` local e são enviadas somente à API correspondente.
@@ -10,6 +10,72 @@ A lista branca permite somente consultas, negociação de itens e recusa de ofer
 listadas são recusados pelo proxy, mesmo se o pedido vier do servidor. O pagamento da
 mensalidade tem o fluxo local de consentimento descrito abaixo. O agente não calcula preços,
 não escolhe leilões e não decide o que comprar ou vender.
+
+## Instalação no Windows
+
+Baixe o **`DropHunter-Setup-<versão>.exe`** no Release (ou o botão "Baixar instalador
+(Windows)" na aba Fatura do painel) e dê dois cliques. O instalador é um assistente em
+português e **não pede senha de administrador**: instala só para o seu usuário, em
+`%LOCALAPPDATA%\Programs\DropHunter`.
+
+As telas, em ordem:
+
+1. **Bem-vindo** — o que é o agente e a promessa: a sua chave fica neste computador.
+2. **Licença** — cole a licença (`lic_…`) da aba Fatura do painel. A tela tem um link que
+   abre o painel.
+3. **Chave da API do CSGOEmpire** — link para `csgoempire.com/trading/apikey`.
+4. **Steam** — a chave da Steam Web API (link para `steamcommunity.com/dev/apikey`; no
+   campo "Nome de domínio" pode escrever `drophunter`) e o seu Steam ID 64 (link para
+   `steamid.io`).
+5. **Pasta** de instalação (só na primeira vez) e **Opções**: atalho na área de trabalho
+   (desmarcado) e "Iniciar junto com o Windows" (marcado).
+6. **Pronto para instalar** → **Instalando** → **Concluir**, com a opção de abrir o app.
+
+Nenhum campo é opcional e cada um é conferido antes de avançar (licença `lic_` + 40
+caracteres, chave da Steam com 32, Steam ID com 17 dígitos começando em `7656`). Ao final o
+instalador grava `%USERPROFILE%\.drophunter\agent.toml` — é por isso que o app já abre
+**Conectado**, sem repetir as perguntas. Para trocar uma chave depois: **Configurações**, no
+próprio app.
+
+Reinstalando por cima (atualização), a primeira tela pergunta se você quer **manter a
+configuração atual** (recomendado) ou informar chaves novas; mantendo, ele pula as três
+telas de chave. Informando chaves novas, só os campos perguntados são reescritos — o resto
+do `agent.toml` (senha da API local, teto de pagamento) fica de pé.
+
+O instalador ainda:
+
+- põe na mesma pasta o `drophunter-agent.exe` de linha de comando (mesmo agente, sem janela);
+- cria o atalho no menu Iniciar;
+- escreve `DropHunter` em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` quando a
+  opção "Iniciar junto com o Windows" fica marcada — a **mesma** chave que o menu da bandeja
+  liga e desliga (nomes diferentes fariam o app subir duas vezes);
+- roda com `SetupLogging=no`: licença e chaves nunca vão parar num log do Setup.
+
+Desinstalar: "Aplicativos instalados" do Windows, ou o atalho no menu Iniciar. **A sua
+configuração não é apagada**: `%USERPROFILE%\.drophunter` (licença e chaves) continua onde
+está — a chave é sua. Apague a pasta à mão se quiser remover tudo.
+
+Quem roda em servidor ou por script pode usar direto o
+`drophunter-agent-windows-x86_64.exe` do Release, sem instalador.
+
+## Aviso do SmartScreen
+
+O instalador **não é assinado com certificado de código** (não temos um). Na primeira
+execução o Windows mostra a tela azul *"O Windows protegeu o seu computador"*: clique em
+**Mais informações** e depois em **Executar assim mesmo**. Não é vírus — é o Windows
+dizendo que não conhece o editor ainda.
+
+Confira o download pelo `SHA256SUMS.txt` publicado no mesmo Release:
+
+```powershell
+Get-FileHash .\DropHunter-Setup-<versão>.exe -Algorithm SHA256
+```
+
+O que resolve de vez é um certificado de assinatura de código **OV** (some o aviso depois
+de reputação acumulada) ou **EV** (some na hora, exige token físico). Custo aproximado:
+OV US$ 200–400/ano, EV US$ 300–600/ano (Sectigo, DigiCert, SSL.com). Decisão do dono do
+produto — enquanto não houver, o aviso é esperado e está documentado aqui e na aba
+"Fatura" do painel.
 
 ## Instalar e usar
 
@@ -107,15 +173,39 @@ No checkout privado, rode cada arquivo separadamente:
 
 ## Build
 
+Linha de comando (Linux e Windows):
+
 ```bash
 pip install ".[dev]"
 python -m PyInstaller build/drophunter-agent.spec --distpath dist --workpath build/_work
 ```
 
-O spec inclui os clientes asyncio de socketio/engineio e `aiohttp.client_ws`.
+App com janela + instalador (só Windows):
+
+```bash
+pip install ".[dev]" pywebview pystray Pillow
+python build/versao.py                 # a versão sai de drophunter_agent/__init__.py
+python build/icone/gerar_ico.py        # build/icone/drophunter.ico (derivado, fora do git)
+python build/icone/gerar_bmp.py        # imagens do assistente (wizard-*.bmp, idem)
+python -m PyInstaller build/drophunter-app.spec --distpath dist --workpath build/_work
+python -m PyInstaller build/drophunter-agent.spec --distpath dist --workpath build/_work
+iscc /DVersao=<versão> installer\drophunter.iss    # sai em dist/DropHunter-Setup-<versão>.exe
+```
+
+O `drophunter-app.spec` é **onedir** e `console=False`: a pasta `dist/DropHunter Agent/` abre
+rápido e não dispara o falso-positivo de antivírus que o onefile dispara (ele se desempacota
+em `%TEMP%` a cada execução). Ele para com "aguardando a frente W1" enquanto
+`drophunter_agent/app.py` não existir.
+
+Os specs incluem os clientes asyncio de socketio/engineio e `aiohttp.client_ws`.
 Não há dependência de `websockets`: o canal usa `aiohttp`.
-O workflow `.github/workflows/build.yml` prepara Linux/Windows; publicar/taguear é uma
-etapa separada, autorizada pelo responsável pelo projeto.
+O workflow `.github/workflows/build.yml` faz tudo isso em tag `v*` e publica
+`DropHunter-Setup-<versão>.exe`, `DropHunter-Setup.exe` (cópia sem versão, para o link
+`releases/latest/download/`), `drophunter-agent-windows-x86_64.exe`,
+`drophunter-agent-linux-x86_64` e `SHA256SUMS.txt`. Rodar o workflow **manualmente**
+(`workflow_dispatch`, sem tag) compila tudo e sobe como artefato, sem criar Release —
+é assim que se testa o instalador sem queimar uma tag. Publicar/taguear é uma etapa
+separada, autorizada pelo responsável pelo projeto.
 
 
 ## Como o pagamento funciona e por que só você consegue autorizar

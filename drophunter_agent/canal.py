@@ -51,6 +51,11 @@ class Canal:
         self._teve_hello = False
         self.motivo_parada = None
         self.tenant = ""
+        self.ultimo_erro = ""
+        #: lidos pela janela do app e pela bandeja (epoch; 0 = nunca)
+        self.ultimo_heartbeat = 0.0
+        self.retomar_em = 0.0
+        self.licenca_recusada = ""
         self.pagamentos_bloqueados = ""
         self.pagamentos = Pagamentos(self)
 
@@ -84,11 +89,17 @@ class Canal:
                     try:
                         await self._sessao(session)
                     except FechoCanal as exc:
+                        self.ultimo_erro = self.redator.texto(
+                            exc.motivo or f"Canal fechado ({exc.codigo})"
+                        )
                         if exc.codigo == 4409:
                             self.motivo_parada = "outra máquina assumiu"
                             log.warning(self.motivo_parada)
                             break
                         if exc.codigo == 4401:
+                            self.licenca_recusada = (
+                                self.redator.texto(exc.motivo) or "licença recusada pelo servidor"
+                            )
                             log.error(
                                 "Licença recusada: %s. Nova tentativa em 5 minutos.",
                                 self.redator.texto(exc.motivo),
@@ -120,6 +131,7 @@ class Canal:
                     if espera is None:
                         espera = min(60, atraso * (1 + self._jitter() / 2))
                         atraso = min(60, atraso * 2)
+                    self.retomar_em = time.time() + espera
                     await self._esperar(espera)
         finally:
             await self.feed.parar()
@@ -244,6 +256,10 @@ class Canal:
             self._heartbeat_s = hb
             self.tenant = self.redator.texto(quadro.get("tenant", ""))
             self._teve_hello = True
+            self.ultimo_erro = ""
+            self.licenca_recusada = ""
+            self.retomar_em = 0.0
+            self.ultimo_heartbeat = time.time()
             self._pronto.set()
             await self.pagamentos.reenviar()
             return
@@ -290,6 +306,7 @@ class Canal:
             if futura and not futura.done():
                 futura.set_result(self.redator.estrutura(quadro))
         elif tipo == "stop":
+            self.ultimo_erro = self.redator.texto(quadro.get("motivo") or "Licença suspensa")
             self.proxy.parar()
             await self.feed.parar()
             log.warning("Servidor pediu parada: %s", self.redator.texto(quadro.get("motivo", "")))
@@ -343,6 +360,7 @@ class Canal:
                     "recusados": self.proxy.recusados,
                 }
             )
+            self.ultimo_heartbeat = time.time()
 
     async def _eventos(self) -> None:
         while True:
@@ -375,3 +393,83 @@ class Canal:
             self._extensao.pop(ident, None)
             if not futura.done():
                 futura.cancel()
+
+
+
+async def testar_licenca(licenca, *, server_url=None, sessao=None):
+    """Handshake mínimo pra Configurações: só `hello` e a primeira resposta.
+
+    Não abre socket do Empire nem executa quadro nenhum do servidor; a conexão morre
+    junto com a função. Derruba um agente já conectado nesta licença (4409) — a janela
+    avisa isso antes de o cliente clicar.
+    """
+    from drophunter_agent.config import SERVER_URL_PADRAO, ConfigInvalida
+    from drophunter_agent.redact import REDATOR
+
+    REDATOR.adicionar(licenca)
+    try:
+        cfg = Config(
+            licenca=licenca,
+            empire_api_key="nao-usada-neste-teste",
+            server_url=server_url or SERVER_URL_PADRAO,
+        )
+        cfg.validar()
+    except ConfigInvalida:
+        return {"ok": False, "mensagem": "Endereço do servidor inválido no agent.toml."}
+
+    async def _sem_redirect(*_):
+        raise CanalOffline("redirecionamento recusado")
+
+    trace = aiohttp.TraceConfig()
+    trace.on_request_redirect.append(_sem_redirect)
+    abrir = sessao or (
+        lambda: aiohttp.ClientSession(
+            trust_env=False, trace_configs=[trace], timeout=aiohttp.ClientTimeout(total=15)
+        )
+    )
+    try:
+        async with (
+            abrir() as session,
+            session.ws_connect(
+                cfg.server_url,
+                headers={"Authorization": f"Bearer {cfg.licenca}"},
+                max_msg_size=65536,
+            ) as ws,
+        ):
+            await ws.send_str(
+                json.dumps(
+                    {
+                        "t": "hello",
+                        "version": __version__,
+                        "os": platform.system(),
+                        "arch": platform.machine(),
+                        "fingerprint": fingerprint(),
+                        "empire_user_id": None,
+                        "local_api_port": 0,
+                        "steam_configurada": False,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            msg = await asyncio.wait_for(ws.receive(), 15)
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                quadro = json.loads(msg.data)
+                if isinstance(quadro, dict) and quadro.get("t") == "hello_ok":
+                    conta = REDATOR.texto(str(quadro.get("tenant", "")))
+                    return {
+                        "ok": True,
+                        "mensagem": "Licença válida" + (f" · conta {conta}" if conta else ""),
+                        "conta": conta,
+                    }
+            codigo = msg.data if msg.type == aiohttp.WSMsgType.CLOSE else ws.close_code
+            if codigo == 4401:
+                motivo = REDATOR.texto(msg.extra or "confira sua conta no site")
+                return {"ok": False, "mensagem": f"Licença recusada · {motivo}"}
+            return {"ok": False, "mensagem": "O servidor não confirmou a licença. Tente de novo."}
+    except (aiohttp.ClientError, ConnectionError, TimeoutError, OSError):
+        return {
+            "ok": False,
+            "mensagem": "Não foi possível falar com o servidor. Confira a internet.",
+        }
+    except (ValueError, TypeError):
+        return {"ok": False, "mensagem": "Resposta inesperada do servidor. Tente de novo."}

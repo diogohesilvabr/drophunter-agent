@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>DropHunter</title>
+<link rel="stylesheet" href="/app/app.css?token=__TOKEN__">
+<script defer src="/app/app.js?token=__TOKEN__"></script></head>
+<body data-token="__TOKEN__">
+<main class="cartao">
+  <header class="topo">
+    <img src="/app/assets/logo.png?token=__TOKEN__" alt="DropHunter" width="150">
+    <span class="versao">versão __VERSAO__</span>
+  </header>
+
+  <section id="principal">
+    <p class="estado"><span id="ponto" class="ponto"></span><span id="rotulo">Carregando…</span></p>
+    <p id="detalhe" class="detalhe" role="status" aria-live="polite"></p>
+    <dl class="resumo">
+      <div><dt>Conta</dt><dd id="conta">—</dd></div>
+      <div><dt>Último heartbeat</dt><dd id="heartbeat">—</dd></div>
+      <div><dt>Pagamentos pendentes</dt><dd id="pagamentos">0</dd></div>
+    </dl>
+    <div class="botoes">
+      <button type="button" id="painel" class="principal">Abrir painel</button>
+      <button type="button" id="ir-config">Configurações</button>
+      <button type="button" id="minimizar">Minimizar pra bandeja</button>
+    </div>
+    <p class="rodape">Deixe o DropHunter aberto na bandeja: com o PC desligado o bot para.</p>
+  </section>
+
+  <section id="configuracoes" hidden>
+    <h1>Configurações</h1>
+    <p id="aviso" class="aviso" hidden>Não achei suas chaves neste computador. Preencha os quatro
+      campos para conectar.</p>
+    <p class="detalhe">As chaves ficam só neste PC, no <code>agent.toml</code>. Deixe um campo em
+      branco para manter o valor atual.</p>
+    <form id="formulario" autocomplete="off">
+      <fieldset>
+        <label for="licenca">Licença DropHunter</label>
+        <input id="licenca" type="password" spellcheck="false" maxlength="44" placeholder="lic_…"
+               autocomplete="off">
+        <div class="linha"><small id="atual-licenca" class="atual"></small>
+          <button type="button" data-abrir="licenca">Abrir página</button>
+          <button type="button" data-testar="licenca">Testar</button></div>
+        <small>Testar abre uma conexão com o servidor: se outro PC estiver usando esta licença,
+          o dele cai.</small>
+      </fieldset>
+      <fieldset>
+        <label for="empire_api_key">Chave da API do CSGOEmpire</label>
+        <input id="empire_api_key" type="password" spellcheck="false" maxlength="4096"
+               autocomplete="off">
+        <div class="linha"><small id="atual-empire_api_key" class="atual"></small>
+          <button type="button" data-abrir="empire">Abrir página</button>
+          <button type="button" data-testar="empire">Testar</button></div>
+        <small>Testar também preenche o seu Steam64.</small>
+      </fieldset>
+      <fieldset>
+        <label for="steam_api_key">Chave da Steam Web API</label>
+        <input id="steam_api_key" type="password" spellcheck="false" maxlength="32"
+               autocomplete="off">
+        <div class="linha"><small id="atual-steam_api_key" class="atual"></small>
+          <button type="button" data-abrir="steam">Abrir página</button>
+          <button type="button" data-testar="steam">Testar</button></div>
+        <small>32 caracteres. Nome de domínio na Steam: pode ser <strong>drophunter</strong>.</small>
+      </fieldset>
+      <fieldset>
+        <label for="steam_id64">Steam64</label>
+        <input id="steam_id64" inputmode="numeric" maxlength="17" placeholder="7656…"
+               autocomplete="off">
+        <div class="linha"><small id="atual-steam_id64" class="atual"></small></div>
+        <small>17 dígitos começando com 7656. Vem do Testar do Empire.</small>
+      </fieldset>
+      <label class="check" id="linha-autostart">
+        <input id="autostart" type="checkbox"> Iniciar com o Windows
+      </label>
+      <p id="mensagem" class="mensagem" role="status" aria-live="polite"></p>
+      <div class="botoes">
+        <button type="submit" id="salvar" class="principal">Salvar</button>
+        <button type="button" id="voltar">Voltar</button>
+        <button type="button" id="sair" class="discreto">Sair do DropHunter</button>
+      </div>
+    </form>
+  </section>
+</main>
+</body></html>
