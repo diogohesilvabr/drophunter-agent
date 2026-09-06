@@ -1,0 +1,84 @@
+# Gera o binario do agente para Linux e Windows e publica nos Releases.
+# Sem segredo: usa so o GITHUB_TOKEN automatico do proprio workflow.
+# Dispara em tag v* (ex.: git tag v4.0.0 && git push --tags) ou manualmente.
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artefato: drophunter-agent
+            saida: drophunter-agent-linux-x86_64
+          - os: windows-latest
+            artefato: drophunter-agent.exe
+            saida: drophunter-agent-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]"
+
+      - name: Testes rapidos do pacote
+        run: |
+          python -c "import drophunter_agent, drophunter_agent.agent; print(drophunter_agent.__version__)"
+          python -m drophunter_agent --version
+
+      - name: Gerar binario
+        run: python -m PyInstaller build/drophunter-agent.spec --distpath dist --workpath build/_work --noconfirm --clean
+
+      - name: Fumaca do binario
+        shell: bash
+        run: |
+          ./dist/${{ matrix.artefato }} --version
+          set +e
+          DROPHUNTER_HOME=/nao/existe ./dist/${{ matrix.artefato }} status
+          [ $? -eq 2 ] || { echo "status sem config deveria sair com 2"; exit 1; }
+
+      - name: Renomear
+        shell: bash
+        run: mv dist/${{ matrix.artefato }} dist/${{ matrix.saida }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.saida }}
+          path: dist/${{ matrix.saida }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefatos
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artefatos
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artefatos/*
+          generate_release_notes: true
