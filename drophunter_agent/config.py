@@ -9,9 +9,13 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import stat
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -41,6 +45,8 @@ class Config:
     server_url: str = SERVER_URL_PADRAO
     steam_api_key: str = ""
     steam_id64: str = ""
+    plataforma_steam_id: str = ""
+    pagamento_teto_coins: Decimal = Decimal("100")
     log_level: str = "INFO"
     #: API local pra extensao Chrome (127.0.0.1). porta 0 = desligada; senha vazia = sem auth
     local_api_port: int = API_LOCAL_PORTA_PADRAO
@@ -105,6 +111,16 @@ class Config:
             or not self.steam_id64.isdecimal()
         ):
             raise ConfigInvalida("steam_id64 precisa ter 17 dígitos")
+        if self.plataforma_steam_id and not steam64_valido(self.plataforma_steam_id):
+            raise ConfigInvalida("plataforma_steam_id precisa ser Steam64 (7656 e 17 dígitos)")
+        try:
+            self.pagamento_teto_coins = Decimal(str(self.pagamento_teto_coins))
+            if not self.pagamento_teto_coins.is_finite() or self.pagamento_teto_coins <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            raise ConfigInvalida(
+                "pagamento_teto_coins precisa ser decimal positivo finito"
+            ) from None
         self.log_level = self.log_level.upper()
         if self.log_level not in NIVEIS_LOG:
             self.log_level = "INFO"
@@ -135,7 +151,7 @@ def carregar(caminho: Path | None = None) -> Config:
         )
     try:
         with open(caminho, "rb") as f:
-            dados = tomllib.load(f)
+            dados = tomllib.load(f, parse_float=Decimal)
     except tomllib.TOMLDecodeError:
         raise ConfigInvalida("Config inválida (TOML); confira o agent.toml") from None
     cfg = Config(
@@ -144,6 +160,8 @@ def carregar(caminho: Path | None = None) -> Config:
         server_url=str(dados.get("server_url", SERVER_URL_PADRAO)),
         steam_api_key=str(dados.get("steam_api_key", "") or ""),
         steam_id64=str(dados.get("steam_id64", "") or ""),
+        plataforma_steam_id=dados.get("plataforma_steam_id", ""),
+        pagamento_teto_coins=dados.get("pagamento_teto_coins", 100),
         log_level=str(dados.get("log_level", "INFO")),
         local_api_port=dados.get(
             "local_api_port", dados.get("api_local_porta", API_LOCAL_PORTA_PADRAO)
@@ -161,39 +179,75 @@ def _toml_str(v: str) -> str:
     return json.dumps(v, ensure_ascii=False)
 
 
+def steam64_valido(valor) -> bool:
+    return isinstance(valor, str) and re.fullmatch(r"7656[0-9]{13}", valor) is not None
+
+
+def _toml_valor(valor) -> str:
+    if isinstance(valor, str):
+        return _toml_str(valor)
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, (datetime, date, time)):
+        return valor.isoformat()
+    if isinstance(valor, list):
+        return "[" + ", ".join(_toml_valor(v) for v in valor) + "]"
+    if isinstance(valor, dict):
+        return "{" + ", ".join(f"{_toml_str(k)} = {_toml_valor(v)}" for k, v in valor.items()) + "}"
+    if isinstance(valor, (int, float, Decimal)):
+        return str(valor).lower().replace("infinity", "inf")
+    raise ConfigInvalida("Tipo de configuração não suportado")
+
+
+def _gravar_atomico(caminho: Path, conteudo: str) -> None:
+    fd, temporario = tempfile.mkstemp(prefix=".agent-", dir=caminho.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            os.chmod(temporario, 0o600)
+            f.write(conteudo)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporario, caminho)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporario)
+
+
 def salvar(cfg: Config, caminho: Path | None = None) -> Path:
-    """Grava o arquivo com 0600 (e o diretorio com 0700). Sobrescreve com backup."""
+    """Substitui atomicamente com 0600, preservando campos e backup privado."""
+    cfg.validar()
     caminho = caminho or cfg.caminho or caminho_config()
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError):
-        os.chmod(caminho.parent, stat.S_IRWXU)
-    conteudo = (
-        "# DropHunter Agent - config local. NAO compartilhe este arquivo.\n"
-        "# A chave do Empire fica SO aqui; o servidor nunca a recebe.\n"
-        f"server_url = {_toml_str(cfg.server_url)}\n"
-        f"licenca = {_toml_str(cfg.licenca)}\n"
-        f"empire_api_key = {_toml_str(cfg.empire_api_key)}\n"
-        f"steam_api_key = {_toml_str(cfg.steam_api_key)}\n"
-        f"steam_id64 = {_toml_str(cfg.steam_id64)}\n"
-        f"log_level = {_toml_str(cfg.log_level)}\n"
-        "# API local pra extensao Chrome (so 127.0.0.1). porta 0 desliga; senha vazia = sem auth\n"
-        f"local_api_port = {int(cfg.local_api_port)}\n"
-        f"api_local_usuario = {_toml_str(cfg.api_local_usuario)}\n"
-        f"api_local_senha = {_toml_str(cfg.api_local_senha)}\n"
-    )
+    os.chmod(caminho.parent, 0o700)
+    dados = {}
+    anterior = None
     if caminho.exists():
-        import time as _t
-
-        backup = caminho.with_name(caminho.name + ".bak-" + _t.strftime("%Y%m%d-%H%M%S"))
-        os.replace(caminho, backup)
-        with contextlib.suppress(OSError):
-            os.chmod(backup, stat.S_IRUSR | stat.S_IWUSR)
-    # cria ja com 0600: abre com O_CREAT|0600 antes de escrever qualquer byte
-    fd = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(conteudo)
-    with contextlib.suppress(OSError):
-        os.chmod(caminho, stat.S_IRUSR | stat.S_IWUSR)
+        anterior = caminho.read_text(encoding="utf-8")
+        dados = tomllib.loads(anterior, parse_float=Decimal)
+    for campo in (
+        "server_url",
+        "licenca",
+        "empire_api_key",
+        "steam_api_key",
+        "steam_id64",
+        "log_level",
+        "local_api_port",
+        "api_local_usuario",
+        "api_local_senha",
+        "plataforma_steam_id",
+        "pagamento_teto_coins",
+    ):
+        dados[campo] = getattr(cfg, campo)
+    conteudo = "# DropHunter Agent — config privada; não compartilhe.\n" + "".join(
+        f"{k if re.fullmatch(r'[A-Za-z0-9_-]+', k) else _toml_str(k)} = {_toml_valor(v)}\n"
+        for k, v in dados.items()
+    )
+    if anterior is not None:
+        backup = caminho.with_name(
+            caminho.name + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        )
+        _gravar_atomico(backup, anterior)
+    _gravar_atomico(caminho, conteudo)
     cfg.caminho = caminho
     return caminho
 

@@ -14,9 +14,10 @@ import uuid
 import aiohttp
 
 from drophunter_agent import __version__
-from drophunter_agent.config import Config
+from drophunter_agent.config import Config, salvar, steam64_valido
 from drophunter_agent.empire_ws import EmpireSocket
 from drophunter_agent.fingerprint import fingerprint
+from drophunter_agent.pagamento import Pagamentos
 from drophunter_agent.proxy import Proxy
 
 log = logging.getLogger("drophunter.canal")
@@ -50,6 +51,8 @@ class Canal:
         self._teve_hello = False
         self.motivo_parada = None
         self.tenant = ""
+        self.pagamentos_bloqueados = ""
+        self.pagamentos = Pagamentos(self)
 
     @property
     def online(self) -> bool:
@@ -226,7 +229,10 @@ class Canal:
 
     async def _despachar(self, quadro) -> None:
         tipo = quadro.get("t")
-        if tipo == "hello_ok" and not self.online and self._hello_enviado:
+        if tipo == "hello_ok" and self._hello_enviado:
+            self._fixar_destino(quadro.get("plataforma_steam_id"))
+            if self.online:
+                return
             hb = quadro.get("heartbeat_s", 30)
             if (
                 isinstance(hb, bool)
@@ -239,6 +245,7 @@ class Canal:
             self.tenant = self.redator.texto(quadro.get("tenant", ""))
             self._teve_hello = True
             self._pronto.set()
+            await self.pagamentos.reenviar()
             return
         if tipo == "update_available":
             log.warning(
@@ -274,6 +281,8 @@ class Canal:
                 tarefa = asyncio.create_task(self._http(quadro))
                 self._pedidos.add(tarefa)
                 tarefa.add_done_callback(self._pedido_finalizado)
+        elif tipo == "pagar_fatura":
+            await self.pagamentos.receber(quadro)
         elif tipo == "ext_response":
             futura = (
                 self._extensao.get(quadro.get("id")) if isinstance(quadro.get("id"), str) else None
@@ -291,6 +300,25 @@ class Canal:
             await self.feed.reconectar()
         else:
             log.debug("Quadro desconhecido ignorado: %s", self.redator.texto(tipo))
+
+    def _fixar_destino(self, destino):
+        if destino is None:
+            return
+        if self.cfg.plataforma_steam_id and destino != self.cfg.plataforma_steam_id:
+            self.pagamentos_bloqueados = "destino divergente"
+            log.error(
+                "ALERTA: destino divergente; pagamentos bloqueados. Confira agent.toml e reinicie."
+            )
+        elif not self.cfg.plataforma_steam_id and steam64_valido(destino):
+            self.cfg.plataforma_steam_id = destino
+            try:
+                salvar(self.cfg)
+            except (OSError, ValueError):
+                self.cfg.plataforma_steam_id = ""
+                self.pagamentos_bloqueados = "falha ao gravar destino"
+                log.error("Pagamentos bloqueados: falha ao gravar destino local")
+            else:
+                log.info("destino de pagamento fixado: %s", self.redator.texto(destino))
 
     def _pedido_finalizado(self, tarefa) -> None:
         self._pedidos.discard(tarefa)

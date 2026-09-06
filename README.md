@@ -1,4 +1,4 @@
-# DropHunter Agent 4.0.0a2
+# DropHunter Agent 4.0.0a3
 
 O agente roda no seu PC e faz a ponte entre o DropHunter e o Empire/Steam.
 As chaves ficam no `agent.toml` local e são enviadas somente à API correspondente.
@@ -7,7 +7,8 @@ O servidor DropHunter recebe respostas e eventos; nunca recebe suas chaves.
 **Sua chave nunca sai para o servidor DropHunter, e o servidor não consegue sacar.**
 A lista branca permite somente consultas, negociação de itens e recusa de ofertas Steam.
 `/user/tip`, saques, transferências, pagamentos, hosts externos, redirects e rotas não
-listadas são recusados, mesmo se o pedido vier do servidor. O agente não calcula preços,
+listadas são recusados pelo proxy, mesmo se o pedido vier do servidor. O pagamento da
+mensalidade tem o fluxo local de consentimento descrito abaixo. O agente não calcula preços,
 não escolhe leilões e não decide o que comprar ou vender.
 
 ## Instalar e usar
@@ -22,7 +23,7 @@ drophunter-agent run
 ```
 
 Os binários Linux/Windows são distribuídos em Releases. A versão antiga `4.0.0a1` não
-fala o protocolo atual; a publicação de `4.0.0a2` depende da liberação do projeto.
+fala o protocolo atual; a publicação de `4.0.0a3` depende da liberação do projeto.
 
 `init` pede licença e chaves sem eco, cria `~/.drophunter/agent.toml` com permissão 600
 (pasta 700) e gera o Basic auth da extensão. Se o terminal não permite leitura sem eco,
@@ -115,3 +116,50 @@ O spec inclui os clientes asyncio de socketio/engineio e `aiohttp.client_ws`.
 Não há dependência de `websockets`: o canal usa `aiohttp`.
 O workflow `.github/workflows/build.yml` prepara Linux/Windows; publicar/taguear é uma
 etapa separada, autorizada pelo responsável pelo projeto.
+
+
+## Como o pagamento funciona e por que só você consegue autorizar
+
+O site solicita o pagamento da fatura, mas isso apenas cria um pedido na memória do
+agente. Abra `http://127.0.0.1:8765/pagar` **no PC em que o agente está rodando** (ou use
+sua `local_api_port`). Entre com o usuário e a senha locais, confira competência, valor,
+destino e vencimento, e clique em **Confirmar pagamento**. Você também pode cancelar.
+O telefone não autoriza esse pagamento. A API local precisa estar ligada e ter senha;
+se `api_local_senha` estiver vazia, configure-a no `agent.toml` e reinicie o agente.
+
+O primeiro `hello_ok` fixa o Steam64 da plataforma na configuração local:
+
+```toml
+plataforma_steam_id = "" # preenchido automaticamente na primeira conexão válida
+pagamento_teto_coins = 100
+```
+
+O destino tem 17 dígitos e começa com `7656`. Se o servidor passar outro destino após a
+fixação, todos os pagamentos ficam bloqueados até você conferir e corrigir a configuração
+local e reiniciar o processo. O agente nunca troca esse destino sozinho. O teto também é
+local: para alterá-lo, edite `pagamento_teto_coins` e reinicie. O comando `status` mostra
+ambos. A gravação preserva os demais campos e cria backup privado com permissão 600.
+
+Cada formulário tem um token de uso único, válido por dez minutos; atualizar a página
+invalida o formulário anterior. A confirmação verifica novamente destino, teto e prazo.
+Sem canal conectado ela responde **503: reconecte o agente**; se o servidor pediu parada,
+responde **503: parado**. Pedidos sobrevivem à reconexão enquanto o processo estiver vivo.
+O pedido precisa vencer em até 24 horas e o valor ter no máximo duas casas decimais.
+
+Somente esse clique chama o Tip do Empire, com `steam_id` e o valor convertido em centavos
+de coin: 6,17 coins → `amount: "617"`. A chave é usada localmente. O proxy continua
+recusando `/user/tip`. Dois cliques não geram dois Tips; os pedidos são processados um por
+vez, e o diário `~/.drophunter/pagamentos.jsonl` (600) impede repetir os IDs após reinício.
+`DROPHUNTER_HOME`, quando definido, muda a pasta da configuração e do diário.
+
+O campo **Código 2FA** é opcional: só preencha se o Empire recusar pedindo 2FA. Após uma
+recusa explícita, solicite outro pedido no site e confirme na página local com o código.
+Ele vai apenas ao Empire como `code`; não é salvo nem enviado ao servidor DropHunter.
+O nome desse campo ainda precisa ser comprovado no primeiro pagamento real.
+
+Se houver timeout, resposta inconclusiva ou queda no meio do pagamento, **confira o
+extrato antes de tentar novamente**. A fatura fica reservada no diário para evitar uma
+segunda cobrança. Não apague o diário para repetir: confirme pelo extrato e peça a
+reconciliação no site. Um resultado obtido durante queda do canal fica na memória e é
+reenviado na reconexão; se o processo encerrar antes disso, a reconciliação é necessária.
+O diário guarda somente IDs, estado e data, sem chave, código 2FA ou saldo.

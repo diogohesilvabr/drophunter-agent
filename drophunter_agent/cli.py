@@ -175,6 +175,8 @@ def cmd_status(caminho: Path | None) -> int:
     print(f"  chave Empire:  {'definida (fica so neste PC)' if cfg.empire_api_key else 'FALTANDO'}")
     print(f"  chave Steam:   {'definida' if cfg.steam_api_key else 'nao informada (opcional)'}")
     print(f"  log:           {cfg.log_level}")
+    print(f"  plataforma_steam_id: {cfg.plataforma_steam_id or 'ainda não fixado'}")
+    print(f"  pagamento_teto_coins: {cfg.pagamento_teto_coins}")
     if int(cfg.local_api_port) > 0:
         auth = f"usuario {cfg.api_local_usuario}, com senha" if cfg.api_local_senha else "SEM senha"
         print(f"  API local:     {cfg.api_local_url} ({auth}) - extensao Chrome")

@@ -1,3 +1,18 @@
+## [GPT/JayFlow] — Frente P: pagamento com consentimento local — 4.0.0a3
+
+- `pagamento.py`: pedidos validados, destino e teto locais, token de uma vez (10 min),
+  confirmação/cancelamento, lock e diário 600 para idempotência inclusive após reinício.
+- TOFU no `hello_ok`: destino divergente bloqueia pagamentos até correção local e restart.
+- `/pagar` exige Basic auth com senha configurada; nenhuma execução na chegada do pedido.
+  Confirmação sem canal ou após `stop` retorna 503. Resultado retido é reenviado ao reconectar.
+- Tip fixo em `https://csgoempire.com/api/v2/user/tip`, `steam_id` Steam64, `amount` em
+  coin-cents string, timeout 20 s, sem redirects; 2FA opcional em `code`, sem persistência.
+- Config atômica com backup, preservação dos demais campos, pin/teto no status.
+- `/user/tip` segue fora da lista branca. Corpos são redigidos antes do envio e não são
+  logados; códigos numéricos de 2FA também são redigidos.
+- Tentativa incerta reserva a fatura antes do HTTP; conferir extrato/reconciliar em caso
+  de queda. Primeiro pagamento real ainda deve comprovar o campo 2FA. Sem publicação/tag.
+
 # Diario do agente (CODER B) — DropHunter 4.0
 
 > Para o Diogo fundir no `CHANGES.md` da raiz. Tudo aqui foi decidido sozinho (nao havia
