@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import contextlib
 import getpass
+import os
 import signal
 import sys
 import warnings
@@ -22,6 +23,7 @@ from drophunter_agent.config import (
     carregar,
     mascarar,
     salvar,
+    steam64_valido,
 )
 from drophunter_agent.local_api import gerar_senha
 from drophunter_agent.redact import REDATOR
@@ -58,8 +60,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.comando is None:
-        parser.print_help()
-        return 0
+        # Duplo clique no .exe (ou `drophunter-agent` sem nada): o usuario nunca edita
+        # arquivo. Primeira vez -> assistente pede licenca e chave e ja conecta.
+        return _assistente(args.config)
     try:
         if args.comando == "init":
             return cmd_init(
@@ -80,23 +83,75 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+# --------------------------------------------------------------- assistente
+def _steam_key_valida(chave: str) -> bool:
+    c = (chave or "").strip()
+    return len(c) == 32 and all(ch in "0123456789abcdefABCDEF" for ch in c)
+
+
+def _pausar(rc: int) -> int:
+    """No Windows, o duplo clique abre um console que some ao sair: segura a janela pra
+    a pessoa LER o erro. Em terminal de verdade (Linux/servico) nao atrapalha."""
+    if os.name == "nt" and sys.stdin is not None and sys.stdin.isatty():
+        try:
+            input("\nPressione Enter para fechar.")
+        except EOFError:
+            pass
+    return rc
+
+
+def _assistente(caminho: Path | None) -> int:
+    destino = caminho or caminho_config()
+    try:
+        if not destino.exists():
+            rc = cmd_init(
+                caminho,
+                porta_local=API_LOCAL_PORTA_PADRAO,
+                senha_local=gerar_senha(),
+                simples=True,
+            )
+            if rc != 0:
+                return _pausar(rc)
+        return _pausar(cmd_run(caminho))
+    except ConfigInvalida as exc:
+        print(REDATOR.texto(f"ERRO: {exc}"), file=sys.stderr)
+        return _pausar(2)
+    except KeyboardInterrupt:
+        print("\nInterrompido.")
+        return 130
+
+
 # --------------------------------------------------------------------- init
 def cmd_init(
     caminho: Path | None,
     *,
     porta_local: int = API_LOCAL_PORTA_PADRAO,
     senha_local: str | None = None,
+    simples: bool = False,
 ) -> int:
+    """``simples=True`` e o assistente do duplo clique: pede TUDO que o bot precisa
+    (licenca, chave do Empire, chave da Steam, Steam64 — nada opcional, decisao do Diogo);
+    URL do servidor e nivel de log ficam no padrao. ``init`` explicito pergunta tambem esses."""
     caminho = caminho or caminho_config()
     print(f"DropHunter Agent {__version__} - configuracao inicial")
-    print(f"O arquivo sera gravado em {caminho} com permissao 600 (so voce le).")
-    print("A chave do Empire fica SO neste PC. O servidor nunca a recebe.\n")
-    if caminho.exists():
+    if simples:
+        print("Vou pedir a licenca (esta na sua conta em www.drophunter.com.br, aba Fatura)")
+        print("a sua chave da API do CSGOEmpire (csgoempire.com > Settings > API Key),")
+        print("a sua chave da Steam Web API (steamcommunity.com/dev/apikey) e o seu Steam ID64.")
+        print("Cole cada uma e aperte Enter. Por seguranca, o que voce cola NAO aparece na tela.")
+        print("Tudo fica gravado SO neste PC; o site nunca recebe a chave.\n")
+    else:
+        print(f"O arquivo sera gravado em {caminho} com permissao 600 (so voce le).")
+        print("A chave do Empire fica SO neste PC. O servidor nunca a recebe.\n")
+    if caminho.exists() and not simples:
         resp = input("Ja existe uma config. Sobrescrever? (faco backup) [s/N]: ").strip().lower()
         if resp not in ("s", "sim", "y"):
             print("Nada alterado.")
             return 0
-    server_url = input(f"URL do servidor [{SERVER_URL_PADRAO}]: ").strip() or SERVER_URL_PADRAO
+    if simples:
+        server_url = SERVER_URL_PADRAO
+    else:
+        server_url = input(f"URL do servidor [{SERVER_URL_PADRAO}]: ").strip() or SERVER_URL_PADRAO
     licenca = _pedir_segredo("Licenca (lic_...): ")
     if not licenca:
         print(
@@ -111,9 +166,19 @@ def cmd_init(
             file=sys.stderr,
         )
         return 2
-    steam = _pedir_segredo("Chave da Steam Web API (opcional, Enter pula): ")
-    steam_id64 = input("Steam ID64 (opcional, Enter pula): ").strip()
-    log_level = input("Nivel de log [INFO]: ").strip().upper() or "INFO"
+    steam = _pedir_segredo("Chave da Steam Web API (steamcommunity.com/dev/apikey): ")
+    if not _steam_key_valida(steam):
+        print(
+            "ERRO: a chave da Steam e obrigatoria (32 caracteres, em steamcommunity.com/dev/apikey; "
+            "o bot usa pra conferir entregas e recusar trade de estranho).",
+            file=sys.stderr,
+        )
+        return 2
+    steam_id64 = input("Seu Steam ID64 (17 digitos, comeca com 7656 - veja em steamid.io): ").strip()
+    if not steam64_valido(steam_id64):
+        print("ERRO: Steam ID64 invalido (17 digitos comecando com 7656).", file=sys.stderr)
+        return 2
+    log_level = "INFO" if simples else (input("Nivel de log [INFO]: ").strip().upper() or "INFO")
     cfg = Config(
         licenca=licenca,
         empire_api_key=empire,
@@ -129,7 +194,10 @@ def cmd_init(
     gravado = salvar(cfg, caminho)
     print(f"\nConfig gravada em {gravado}.")
     _imprimir_extensao(cfg, mostrar_senha=True)
-    print("Proximo passo: drophunter-agent run")
+    if simples:
+        print("\nPronto! Conectando ao DropHunter... (deixe esta janela aberta; feche pra parar o bot)")
+    else:
+        print("Proximo passo: drophunter-agent run")
     return 0
 
 

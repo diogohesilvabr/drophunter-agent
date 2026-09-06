@@ -1,4 +1,4 @@
-# DropHunter Agent 4.0.0a3
+# DropHunter Agent 4.0.0a4
 
 O agente roda no seu PC e faz a ponte entre o DropHunter e o Empire/Steam.
 As chaves ficam no `agent.toml` local e são enviadas somente à API correspondente.
@@ -23,7 +23,7 @@ drophunter-agent run
 ```
 
 Os binários Linux/Windows são distribuídos em Releases. A versão antiga `4.0.0a1` não
-fala o protocolo atual; a publicação de `4.0.0a3` depende da liberação do projeto.
+fala o protocolo atual; publicado como `4.0.0a4`.
 
 `init` pede licença e chaves sem eco, cria `~/.drophunter/agent.toml` com permissão 600
 (pasta 700) e gera o Basic auth da extensão. Se o terminal não permite leitura sem eco,

@@ -1,3 +1,13 @@
+## 4.0.0a4 (06/09/2026) — duplo clique configura tudo; Steam obrigatoria
+
+- Sem subcomando (duplo clique no `.exe`): se nao ha config, o assistente pede **licenca,
+  chave do Empire, chave da Steam Web API e Steam ID64** (todos obrigatorios, com validacao
+  de formato e onde pegar cada um), grava sozinho em `~/.drophunter/agent.toml` (600) e ja
+  conecta. Com config, so conecta. O usuario nunca edita arquivo.
+- No Windows a janela espera Enter antes de fechar quando o programa termina com erro.
+- `init` explicito tambem exige Steam (o bot usa pra conferir entregas e recusar trade de
+  estranho); URL do servidor e nivel de log continuam so no `init`.
+
 ## [GPT/JayFlow] — Frente P: pagamento com consentimento local — 4.0.0a3
 
 - `pagamento.py`: pedidos validados, destino e teto locais, token de uma vez (10 min),
