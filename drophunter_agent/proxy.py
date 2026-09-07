@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from typing import Any
@@ -92,7 +93,7 @@ class Proxy:
         try:
             if self.parado or not self._online:
                 resposta["erro"] = "parado"
-                return self.redator.estrutura(resposta)
+                return self.redator.dados(resposta)
             url = validar(quadro)
             alvo = quadro["alvo"]
             params = dict(quadro.get("params") or {})
@@ -109,14 +110,14 @@ class Proxy:
                         headers={"content-type": "application/json"},
                         elapsed_ms=int((time.monotonic() - inicio) * 1000),
                     )
-                    return self.redator.estrutura(resposta)
+                    return self.redator.dados(resposta)
                 params["key"] = self.cfg.steam_api_key
             tempo = quadro.get("timeout_s", 20)
             async with asyncio.timeout(tempo):
                 async with self._semaforo:
                     if self.parado or not self._online:
                         resposta["erro"] = "parado"
-                        return self.redator.estrutura(resposta)
+                        return self.redator.dados(resposta)
                     envio = {"json": quadro.get("json")}
                     if alvo == "steam" and quadro["method"] == "POST":
                         envio = {
@@ -136,7 +137,24 @@ class Proxy:
                             # Metadata pode renovar tokens; JSON incompleto é descartado.
                             corpo = MASCARA
                         else:
-                            corpo = self.redator.corpo(corpo)
+                            if quadro["path"] == "/metadata/socket":
+                                # O metadata RENOVA `socket_token`/`socket_signature`, que
+                                # sao segredos do cliente e nao podem subir. Antes eles
+                                # sumiam por adivinhacao; agora que a redacao de dado so
+                                # apaga o que CONHECE, eles precisam ser registrados aqui,
+                                # antes de redigir. Mesma coisa que `metadata()` ja faz.
+                                with contextlib.suppress(Exception):
+                                    novos = json.loads(corpo)
+                                    self.redator.registrar_credenciais(novos)
+                                    REDATOR.registrar_credenciais(novos)
+                            # DADO, nao log: e a resposta do Empire que vira o estado do
+                            # bot. `corpo` ADIVINHA segredo (o padrao `token=` e a chave
+                            # chamada "token") e apagava o token do link de troca do
+                            # comprador — a Steam recusava a oferta com AccessDenied (15)
+                            # e a venda nao saia. `dados` apaga so os segredos CONHECIDOS
+                            # (a chave do Empire e a da Steam do cliente), que e o que a
+                            # custodia zero exige. Ver o comentario em `redact.dados`.
+                            corpo = self.redator.dados(corpo)
                         bruto = corpo.encode("utf-8")
                         truncado = truncado or len(bruto) > LIMITE_CORPO
                         resposta.update(
@@ -159,4 +177,4 @@ class Proxy:
             resposta["erro"] = "rede"
         finally:
             resposta["elapsed_ms"] = int((time.monotonic() - inicio) * 1000)
-        return self.redator.estrutura(resposta)
+        return self.redator.dados(resposta)
