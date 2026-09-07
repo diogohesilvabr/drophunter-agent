@@ -120,6 +120,49 @@ class Redator:
         s = valor if isinstance(valor, str) else str(valor)
         return any(seg in s for seg in self._segredos)
 
+    # ------------------------------------------------------------------ DADO
+    # LOG e DADO nao sao a mesma coisa, e confundir os dois quebrou a venda de
+    # todos os clientes em 07/09/2026.
+    #
+    # O que aconteceu: o link de troca que o Empire manda tem a forma
+    # `.../tradeoffer/new/?partner=<n>&token=<token do comprador>`. Esse quadro
+    # subia pelo `canal.enviar`, que aplicava `estrutura()`/`corpo()` — e os dois
+    # ADIVINHAM segredo: o padrao `token=...` e a chave de dicionario chamada
+    # "token". Resultado: o servidor guardava `token=[REDIGIDO]`, a extensao
+    # mandava essa palavra pra Steam e a Steam recusava com AccessDenied (15).
+    # Duas vendas travadas, dois compradores diferentes, erro identico, e nenhuma
+    # pista no log — porque o log estava certo, quem estava errado era o dado.
+    #
+    # A regra que vale daqui pra frente:
+    #
+    # * `texto`/`estrutura`/`corpo` = LOG. Podem adivinhar; errar pra mais e de
+    #   graca, o pior que acontece e um log menos legivel.
+    # * `dados` = PROXY. Apaga SO os segredos conhecidos (a chave do Empire e a
+    #   da Steam, registradas em `adicionar`). Nao adivinha nada, porque adivinhar
+    #   aqui e corromper o produto.
+    #
+    # A custodia zero continua inteira: a chave do cliente e um segredo CONHECIDO
+    # e some do mesmo jeito. O que para de sumir e o dado de terceiro que o
+    # produto precisa pra funcionar.
+    def dados(self, obj: Any) -> Any:
+        """Redige o que trafega: apenas os segredos conhecidos, sem heuristica."""
+        if isinstance(obj, str):
+            return self._so_conhecidos(obj)
+        if isinstance(obj, dict):
+            return {self._so_conhecidos(str(k)): self.dados(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self.dados(v) for v in obj]
+        return obj
+
+    def _so_conhecidos(self, s: str) -> str:
+        try:
+            for seg in self._segredos:
+                if seg in s:
+                    s = s.replace(seg, MASCARA)
+            return s
+        except Exception:
+            return MASCARA
+
 
 def _mascarar_padrao(m: re.Match) -> str:
     grupos = m.groups()

@@ -348,7 +348,11 @@ class ApiLocal:
                 return web.json_response({"erro": "resposta inválida do servidor"}, status=502)
             return web.Response(
                 status=status,
-                text=self.redator.corpo(texto),
+                # DADO, nao log: e a resposta que a extensao consome (fila de vendas,
+                # link de troca do comprador). `corpo` adivinhava `token=` e apagava
+                # o token do comprador — a Steam recusava com AccessDenied e a venda
+                # nao saia (07/09/2026). Segredo conhecido continua sumindo aqui.
+                text=self.redator.dados(texto),
                 headers={"Content-Type": self.redator.texto(content_type)},
             )
         except CanalOffline:

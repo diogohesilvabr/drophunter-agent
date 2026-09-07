@@ -23,6 +23,14 @@ from drophunter_agent.proxy import Proxy
 log = logging.getLogger("drophunter.canal")
 
 
+#: Quadros que carregam DADO do produto (resposta do Empire, feed, pedido da
+#: extensao). Nestes a redacao apaga so os segredos CONHECIDOS: adivinhar aqui
+#: corrompe o que o bot precisa — foi o que apagou o `token=` do link de troca do
+#: comprador e travou a entrega de toda venda em 07/09/2026. O resto dos quadros
+#: (hello, heartbeat, log, pagamento) continua com a redacao completa.
+QUADROS_DE_DADO = frozenset({"http_response", "ws_event", "ext_request"})
+
+
 class CanalOffline(ConnectionError):
     """A extensão deve reter as ofertas enquanto não houver canal."""
 
@@ -217,10 +225,17 @@ class Canal:
     async def enviar(self, quadro, *, antes_hello=False) -> None:
         if not self._ws or self._ws.closed or (not antes_hello and not self.online):
             raise CanalOffline("sem canal com o servidor")
-        limpo = self.redator.estrutura(quadro)
-        # Corpo HTTP é uma string JSON: redigir também seus campos sensíveis.
-        if isinstance(limpo.get("body"), str):
-            limpo["body"] = self.redator.corpo(limpo["body"])
+        # DADO x LOG (07/09/2026): quadro que carrega resposta do Empire é dado do
+        # produto e só pode perder os segredos CONHECIDOS. A redação que adivinha
+        # (`estrutura`/`corpo`) apagava o `token=` do link de troca do comprador e
+        # travava a entrega de toda venda — ver o comentário em `redact.dados`.
+        # Quadro de log continua com a redação completa.
+        if quadro.get("t") in QUADROS_DE_DADO:
+            limpo = self.redator.dados(quadro)
+        else:
+            limpo = self.redator.estrutura(quadro)
+            if isinstance(limpo.get("body"), str):
+                limpo["body"] = self.redator.corpo(limpo["body"])
         async with self._envio:
             await self._ws.send_str(json.dumps(limpo, ensure_ascii=False, allow_nan=False))
 
@@ -308,7 +323,9 @@ class Canal:
                 self._extensao.get(quadro.get("id")) if isinstance(quadro.get("id"), str) else None
             )
             if futura and not futura.done():
-                futura.set_result(self.redator.estrutura(quadro))
+                # DADO: e a fila de vendas que a extensao le. `estrutura` adivinhava
+                # e apagava o `token=` do link do comprador (07/09/2026).
+                futura.set_result(self.redator.dados(quadro))
         elif tipo == "stop":
             self.ultimo_erro = self.redator.texto(quadro.get("motivo") or "Licença suspensa")
             self.proxy.parar()
