@@ -53,6 +53,8 @@ class Canal:
         self._envio = asyncio.Lock()
         self._pedidos: set[asyncio.Task] = set()
         self._extensao: dict[str, asyncio.Future] = {}
+        self._atualizacoes: dict[str, asyncio.Future] = {}
+        self.atualizacao = None
         self._heartbeat_s = 30.0
         self._inicio = time.monotonic()
         self._hello_enviado = False
@@ -180,7 +182,7 @@ class Canal:
             finally:
                 self._pronto.clear()
                 self.proxy.desconectar()
-                for futura in self._extensao.values():
+                for futura in (*self._extensao.values(), *self._atualizacoes.values()):
                     if not futura.done():
                         futura.set_exception(CanalOffline("canal desconectado"))
                 for tarefa in [*tarefas, *self._pedidos]:
@@ -282,7 +284,14 @@ class Canal:
             self._pronto.set()
             await self.pagamentos.reenviar()
             return
+        if tipo == "update_result":
+            ident = quadro.get("id")
+            futura = self._atualizacoes.get(ident) if isinstance(ident, str) else None
+            if futura is not None and not futura.done():
+                futura.set_result(quadro)
+            return
         if tipo == "update_available":
+            self.atualizacao = {k: quadro.get(k) for k in ("version", "url", "sha256", "hard")}
             log.warning(
                 "Atualização %s disponível: %s",
                 self.redator.texto(quadro.get("version")),
@@ -389,6 +398,22 @@ class Canal:
             if not self.proxy.parado:
                 await self.enviar(quadro)
             self.feed.buffer.confirmar(quadro)
+
+    async def consultar_atualizacao(self, *, timeout_s=15):
+        if not self.online:
+            raise CanalOffline("sem canal com o servidor")
+        if self._atualizacoes:
+            raise CanalOffline("consulta de atualização em andamento")
+        ident = uuid.uuid4().hex
+        futura = asyncio.get_running_loop().create_future()
+        self._atualizacoes[ident] = futura
+        try:
+            await self.enviar({"t": "update_check", "id": ident})
+            return await asyncio.wait_for(futura, timeout_s)
+        finally:
+            self._atualizacoes.pop(ident, None)
+            if not futura.done():
+                futura.cancel()
 
     async def extensao(self, method, path, query, corpo, *, timeout_s=25) -> dict:
         if not self.online or self.proxy.parado:

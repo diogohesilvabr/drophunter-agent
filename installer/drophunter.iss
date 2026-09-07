@@ -323,6 +323,7 @@ var
   Linhas: TArrayOfString;
   Aproveitou: Boolean;
 begin
+  if WizardSilent and ConfigJaExiste then Exit;
   if ManterOQueJaTem() then Exit;
   Arquivo := CaminhoConfig();
   Pasta := ExtractFileDir(Arquivo);
@@ -378,9 +379,9 @@ begin
   PagLicenca := CriarPaginaChave(Anterior,
     'Licença do DropHunter',
     'Cole aqui a licença da sua conta.',
-    'Ela aparece no painel do site, na aba Fatura. É o que liga este computador à sua conta.');
+    'Ela aparece no painel do site, na aba Configurações. É o que liga este computador à sua conta.');
   PagLicenca.Add('Licença (começa com lic_):', True);
-  LinkPainel := CriarLink(PagLicenca, 'Abrir a página para pegar a licença (painel, aba Fatura)', 0);
+  LinkPainel := CriarLink(PagLicenca, 'Abrir a página para pegar a licença (painel, aba Configurações)', 0);
   LinkPainel.OnClick := @AbrirPainel;
 
   PagEmpire := CriarPaginaChave(PagLicenca.ID,
@@ -420,7 +421,7 @@ begin
     if not LicencaValida(Valor) then begin
       MsgBox('A licença não está no formato certo.' + #13#10#13#10
                + 'Ela começa com "lic_" e tem mais 40 caracteres (letras, números, _ ou -).'
-               + #13#10 + 'Copie do painel, na aba Fatura, com o botão de copiar.', mbError, MB_OK);
+               + #13#10 + 'Copie do painel, na aba Configurações, com o botão de copiar.', mbError, MB_OK);
       Result := False;
     end;
   end else if CurPageID = PagEmpire.ID then begin

@@ -136,7 +136,7 @@ def cmd_init(
     caminho = caminho or caminho_config()
     print(f"DropHunter Agent {__version__} - configuracao inicial")
     if simples:
-        print("Vou pedir a licenca (esta na sua conta em www.drophunter.com.br, aba Fatura)")
+        print("Vou pedir a licenca (esta na sua conta em www.drophunter.com.br, aba Configurações)")
         print("a sua chave da API do CSGOEmpire (csgoempire.com > Settings > API Key),")
         print("a sua chave da Steam Web API (steamcommunity.com/dev/apikey) e o seu Steam ID64.")
         print("Cole cada uma e aperte Enter. Por seguranca, o que voce cola NAO aparece na tela.")

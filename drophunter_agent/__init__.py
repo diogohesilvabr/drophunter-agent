@@ -3,4 +3,4 @@
 O agente não decide negociações e não importa o bot ou o servidor privado.
 """
 
-__version__ = "4.0.1"
+__version__ = "4.0.2"

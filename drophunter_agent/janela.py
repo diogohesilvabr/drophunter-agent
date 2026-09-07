@@ -149,6 +149,10 @@ class Janela:
     ):
         self.caminho = Path(caminho)
         self._canal = canal or (lambda: None)
+        from drophunter_agent.atualizacao import Atualizacao
+
+        self.atualizacao = Atualizacao(self._canal)
+        self._tarefa_atualizacao = None
         self.ao_salvar = ao_salvar
         self.ao_sair = ao_sair
         self.ao_minimizar = ao_minimizar
@@ -171,6 +175,7 @@ class Janela:
         self.aplicacao.router.add_get("/app/estado", self.rota_estado)
         self.aplicacao.router.add_post("/app/testar/{servico}", self.rota_testar)
         self.aplicacao.router.add_post("/app/salvar", self.rota_salvar)
+        self.aplicacao.router.add_post("/app/atualizacao", self.rota_atualizacao)
         self.aplicacao.router.add_post("/app/autostart", self.rota_autostart)
         self.aplicacao.router.add_post("/app/senha-local", self.rota_senha_local)
         self.aplicacao.router.add_post("/app/abrir", self.rota_abrir)
@@ -204,6 +209,9 @@ class Janela:
             raise
 
     async def parar(self) -> None:
+        if self._tarefa_atualizacao and not self._tarefa_atualizacao.done():
+            self._tarefa_atualizacao.cancel()
+            await asyncio.gather(self._tarefa_atualizacao, return_exceptions=True)
         if self._runner:
             await self._runner.cleanup()
             self._runner = None
@@ -295,7 +303,22 @@ class Janela:
             "usuario": (cfg.api_local_usuario if ligada else "") or "",
             "senha": mascarar_fim(cfg.api_local_senha) if ligada else "",
         }
+        payload["atualizacao"] = self.atualizacao.instantaneo()
         return payload
+
+    async def rota_atualizacao(self, request):
+        try:
+            dados = await self._dados(request)
+        except (ValueError, TypeError, UnicodeError):
+            return web.json_response({"ok": False}, status=400, headers=CABECALHOS)
+        acao = dados.get("acao")
+        if acao not in ("procurar", "instalar"):
+            return web.json_response({"ok": False}, status=400, headers=CABECALHOS)
+        if self._tarefa_atualizacao and not self._tarefa_atualizacao.done():
+            return web.json_response({"ok": False}, status=409, headers=CABECALHOS)
+        executar = self.atualizacao.procurar if acao == "procurar" else self.atualizacao.instalar
+        self._tarefa_atualizacao = asyncio.create_task(executar())
+        return web.json_response({"ok": True}, status=202, headers=CABECALHOS)
 
     async def rota_estado(self, request):
         return web.json_response(self.instantaneo(), headers=CABECALHOS)

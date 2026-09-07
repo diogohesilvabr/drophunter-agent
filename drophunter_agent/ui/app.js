@@ -44,6 +44,13 @@ function pintar(e) {
   $('ver-pagamentos').textContent = `Ver e confirmar (${e.pagamentos})`;
   $('painel').classList.toggle('principal', !pendentes);
   pintarExtensao(e);
+  const a = e.atualizacao || {};
+  $('atualizacao-estado').textContent = a.mensagem || '';
+  $('atualizacao-estado').classList.toggle('erro', !!a.erro);
+  $('atualizacao-botao').disabled = !!a.ocupado || a.acao === 'aguardar';
+  $('atualizacao-botao').textContent = a.acao === 'instalar' ? 'Baixar e instalar' : 'Procurar atualização';
+  $('atualizacao-botao').classList.toggle('principal', a.acao === 'instalar' || !!a.destaque);
+  $('atualizacao-link').hidden = !a.url;
   $('aviso').hidden = e.estado !== 'sem_config';
   $('linha-autostart').hidden = !e.autostart_disponivel;
   if (document.activeElement !== $('autostart')) $('autostart').checked = !!e.autostart;
@@ -175,3 +182,22 @@ $('sair').addEventListener('click', () => pedir('janela', {acao: 'sair'}).catch(
 mostrar(location.hash === '#configuracoes' ? 'configuracoes' : 'principal');
 atualizar();
 setInterval(() => { if (!ocupado) atualizar(); }, 2000);
+
+for (const [campo, rotulo] of [['url', 'Endereço copiado'], ['usuario', 'Usuário copiado']]) {
+  $('ext-' + campo + '-copiar').addEventListener('click', async () => {
+    const valor = ultimo?.extensao?.[campo];
+    if (valor) recado(await copiar(valor) ? rotulo + '. Cole nas opções da extensão.'
+      : 'Não deu pra copiar. Selecione o valor e copie na mão.', false);
+  });
+}
+$('atualizacao-botao').addEventListener('click', async () => {
+  $('atualizacao-botao').disabled = true;
+  try {
+    await pedir('atualizacao', {acao: ultimo?.atualizacao?.acao === 'instalar' ? 'instalar' : 'procurar'});
+    await atualizar();
+  } catch (erro) {
+    $('atualizacao-estado').textContent = erro.message;
+    $('atualizacao-botao').disabled = false;
+  }
+});
+$('atualizacao-link').addEventListener('click', () => pedir('abrir', {alvo: 'painel'}).catch(() => {}));

@@ -14,14 +14,14 @@ não escolhe leilões e não decide o que comprar ou vender.
 ## Instalação no Windows
 
 Baixe o **`DropHunter-Setup-<versão>.exe`** no Release (ou o botão "Baixar instalador
-(Windows)" na aba Fatura do painel) e dê dois cliques. O instalador é um assistente em
+(Windows)" na aba Configurações do painel) e dê dois cliques. O instalador é um assistente em
 português e **não pede senha de administrador**: instala só para o seu usuário, em
 `%LOCALAPPDATA%\Programs\DropHunter`.
 
 As telas, em ordem:
 
 1. **Bem-vindo** — o que é o agente e a promessa: a sua chave fica neste computador.
-2. **Licença** — cole a licença (`lic_…`) da aba Fatura do painel. A tela tem um link que
+2. **Licença** — cole a licença (`lic_…`) da aba Configurações do painel. A tela tem um link que
    abre o painel.
 3. **Chave da API do CSGOEmpire** — link para `csgoempire.com/trading/apikey`.
 4. **Steam** — a chave da Steam Web API (link para `steamcommunity.com/dev/apikey`; no
@@ -75,7 +75,7 @@ O que resolve de vez é um certificado de assinatura de código **OV** (some o a
 de reputação acumulada) ou **EV** (some na hora, exige token físico). Custo aproximado:
 OV US$ 200–400/ano, EV US$ 300–600/ano (Sectigo, DigiCert, SSL.com). Decisão do dono do
 produto — enquanto não houver, o aviso é esperado e está documentado aqui e na aba
-"Fatura" do painel.
+"Configurações" do painel.
 
 ## Instalar e usar
 

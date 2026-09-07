@@ -26,6 +26,9 @@
       <button type="button" id="ir-config">Configurações</button>
       <button type="button" id="minimizar">Minimizar pra bandeja</button>
     </div>
+    <div class="linha"><button type="button" id="atualizacao-botao">Procurar atualização</button>
+      <button type="button" id="atualizacao-link" hidden>Baixar pelo painel</button></div>
+    <p id="atualizacao-estado" role="status" aria-live="polite"></p>
     <p class="rodape">Deixe o DropHunter aberto na bandeja: com o PC desligado o bot para.</p>
   </section>
 
@@ -74,8 +77,8 @@
       <fieldset id="bloco-extensao" hidden>
         <label>Extensão do Chrome</label>
         <small>Nas opções da extensão, preencha os três valores abaixo. Eles valem só neste PC.</small>
-        <div class="linha"><span class="atual">Endereço: <code id="ext-url">—</code></span></div>
-        <div class="linha"><span class="atual">Usuário: <code id="ext-usuario">—</code></span></div>
+        <div class="linha"><span class="atual">Endereço: <code id="ext-url">—</code></span><button type="button" id="ext-url-copiar">Copiar</button></div>
+        <div class="linha"><span class="atual">Usuário: <code id="ext-usuario">—</code></span><button type="button" id="ext-usuario-copiar">Copiar</button></div>
         <div class="linha"><span class="atual">Senha: <code id="ext-senha">—</code></span>
           <button type="button" id="ext-mostrar">Mostrar</button>
           <button type="button" id="ext-copiar">Copiar</button>
