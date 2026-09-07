@@ -1,3 +1,26 @@
+## 4.0.0b4 (07/09/2026) — pagamento sem atrito: senha local automatica e pagina do app
+
+Motivo: no primeiro pagamento real (07/09 00h20) o cliente clicou em "Pagamentos pendentes",
+o navegador abriu `/pagar` e a pagina respondeu *"Configure api_local_senha no agent.toml e
+reinicie o agente."*, em Times New Roman. O usuario nunca edita arquivo.
+
+- **A senha da API local nasce sozinha** na subida (`app.main_app()` e `drophunter-agent run`):
+  `api_local_senha` vazia -> sorteia, grava no `agent.toml` (600, preservando o resto) e segue.
+  O instalador continua gravando `api_local_senha = ""`, como a frente W2 decidiu.
+- **O app abre a pagina de pagamento ja autenticado**: `GET /pagar?acesso=<token>` (32 bytes,
+  10 min, uso unico) responde `Set-Cookie: dh_pagar=…; HttpOnly; SameSite=Strict; Path=/pagar`
+  e redireciona pra `/pagar` limpo. Confirmar/cancelar aceitam o cookie **ou** o Basic auth.
+  Quem chega sem nada ve a pagina "abra pelo DropHunter" (401) — sem `WWW-Authenticate`, que
+  era justamente a caixinha de usuario/senha que o cliente nao tinha como responder.
+- **Paginas com a marca**: `/pagar`, resultado e erro/401 usam o CSS e a logo do app
+  (`/pagar/estilo.css`, `/pagar/logo.png`), CSP `default-src 'none'` com `style-src`/`img-src`
+  proprios. Sem CDN, sem JS.
+- **Configuracoes mostra a API local da extensao**: endereco, usuario e senha mascarada, com
+  **Mostrar**, **Copiar** e **Gerar nova senha** (a nova invalida a antiga na hora).
+- **Janela**: com pagamento pendente o cartao fica laranja e o botao diz "Ver e confirmar (n)".
+- Token e cookie nunca vao para log; a chave do Empire continua so no PC; `/pagar` continua
+  so em loopback e o consentimento continua sendo um clique explicito nesta maquina.
+
 ## 4.0.0a4 (06/09/2026) — duplo clique configura tudo; Steam obrigatoria
 
 - Sem subcomando (duplo clique no `.exe`): se nao ha config, o assistente pede **licenca,

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import re
+import secrets
 import stat
 import tempfile
 import tomllib
@@ -250,6 +252,28 @@ def salvar(cfg: Config, caminho: Path | None = None) -> Path:
     _gravar_atomico(caminho, conteudo)
     cfg.caminho = caminho
     return caminho
+
+
+def gerar_senha() -> str:
+    return secrets.token_urlsafe(12)
+
+
+def garantir_senha_local(cfg: Config) -> bool:
+    """Senha da API local nasce na subida, nunca na mão do cliente.
+
+    O instalador grava ``api_local_senha = ""`` de proposito (nao inventa segredo que nao
+    tem como mostrar). Quem sorteia e grava e o agente, na primeira vez que sobe.
+    """
+    if int(cfg.local_api_port) <= 0 or cfg.api_local_senha:
+        return False
+    cfg.api_local_senha = gerar_senha()
+    try:
+        salvar(cfg, cfg.caminho)
+    except OSError:
+        logging.getLogger("drophunter").warning(
+            "Nao consegui gravar a senha da API local; ela vale so ate reiniciar."
+        )
+    return True
 
 
 def _avisar_permissao(caminho: Path) -> None:

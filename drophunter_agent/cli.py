@@ -21,11 +21,12 @@ from drophunter_agent.config import (
     ConfigInvalida,
     caminho_config,
     carregar,
+    garantir_senha_local,
+    gerar_senha,
     mascarar,
     salvar,
     steam64_valido,
 )
-from drophunter_agent.local_api import gerar_senha
 from drophunter_agent.redact import REDATOR
 
 
@@ -287,9 +288,10 @@ def cmd_run(caminho: Path | None) -> int:
     from drophunter_agent.logs import configurar_log
 
     cfg = carregar(caminho)
+    configurar_log(cfg.log_level)
+    garantir_senha_local(cfg)
     for s in cfg.segredos():
         REDATOR.adicionar(s)
-    configurar_log(cfg.log_level)
     agente = Agente(cfg)
     return asyncio.run(_rodar(agente))
 

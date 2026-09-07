@@ -49,3 +49,16 @@ fieldset small{color:var(--fraco);font-size:12px;line-height:1.4}
 .mensagem{min-height:20px;margin:0 0 12px;color:var(--verde)}
 .mensagem.erro{color:var(--vermelho)}
 code{background:#0f1622;border-radius:6px;padding:1px 5px}
+
+/* cartão de pagamento pendente e a página /pagar, que usa esta mesma folha */
+.resumo div.alerta{border-color:var(--laranja);background:#241708}
+.resumo div.alerta dd{color:var(--laranja)}
+.pedido{border:1px solid var(--borda);border-radius:14px;padding:16px 18px;margin:0 0 16px}
+.pedido h2{font-size:17px;margin:0 0 12px}
+.pedido .resumo{margin-bottom:14px}
+.pedido fieldset{max-width:260px}
+pre{background:#0f1622;border:1px solid var(--borda);border-radius:10px;padding:12px;
+  overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fraco);font-size:13px}
+a.voltar{color:var(--laranja);font-weight:600;text-decoration:none}
+a.voltar:hover{text-decoration:underline}
+#bloco-extensao code{overflow-wrap:anywhere}

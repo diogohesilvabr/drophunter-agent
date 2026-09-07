@@ -15,7 +15,12 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from drophunter_agent.config import ConfigInvalida, caminho_config, carregar
+from drophunter_agent.config import (
+    ConfigInvalida,
+    caminho_config,
+    carregar,
+    garantir_senha_local,
+)
 from drophunter_agent.redact import REDATOR
 
 log = logging.getLogger("drophunter.app")
@@ -112,6 +117,7 @@ class Aplicativo:
             ao_sair=self.sair,
             ao_minimizar=self.esconder,
             url_pagamentos=self.url_pagamentos,
+            pagamentos_ativos=self.pagamentos_ativos,
             erro=lambda: self.erro,
         )
         await self.janela.iniciar()
@@ -149,6 +155,8 @@ class Aplicativo:
         from drophunter_agent.agent import Agente
 
         await self._parar_agente()
+        # O instalador grava a senha da API local vazia: ela nasce aqui, sem o cliente saber.
+        garantir_senha_local(cfg)
         for segredo in cfg.segredos():
             REDATOR.adicionar(segredo)
         self.agente = Agente(cfg)
@@ -182,9 +190,18 @@ class Aplicativo:
         if self.bandeja:
             self.bandeja.avisar("Configurações salvas · reconectando")
 
-    def url_pagamentos(self) -> str:
+    def _api_local(self):
         api = getattr(self.agente, "api_local", None) if self.agente else None
-        return api.url + "/pagar" if api and api.porta else ""
+        return api if api and api.porta else None
+
+    def pagamentos_ativos(self) -> bool:
+        """Só diz se dá pra abrir; não gasta um token de acesso (a janela pergunta a cada 2 s)."""
+        return self._api_local() is not None
+
+    def url_pagamentos(self) -> str:
+        """Cada clique gera um link novo, de uso único: quem abre a página é o app."""
+        api = self._api_local()
+        return api.url_pagar() if api else ""
 
     # -------------------------------------------------------------------- janela
     @property

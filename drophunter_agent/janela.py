@@ -26,10 +26,10 @@ from drophunter_agent.config import (
     Config,
     ConfigInvalida,
     carregar,
+    gerar_senha,
     salvar,
     steam64_valido,
 )
-from drophunter_agent.local_api import gerar_senha
 from drophunter_agent.redact import REDATOR
 
 log = logging.getLogger("drophunter.janela")
@@ -140,6 +140,7 @@ class Janela:
         ao_sair=None,
         ao_minimizar=None,
         url_pagamentos=None,
+        pagamentos_ativos=None,
         erro=None,
         transport=None,
         testar_licenca=None,
@@ -152,6 +153,8 @@ class Janela:
         self.ao_sair = ao_sair
         self.ao_minimizar = ao_minimizar
         self.url_pagamentos = url_pagamentos or (lambda: "")
+        # Predicado separado do link: o estado é lido a cada 2 s e não pode gastar token.
+        self.pagamentos_ativos = pagamentos_ativos or (lambda: bool(self.url_pagamentos()))
         self._erro = erro or (lambda: "")
         self.transport = transport
         self._testar_licenca = testar_licenca
@@ -169,6 +172,7 @@ class Janela:
         self.aplicacao.router.add_post("/app/testar/{servico}", self.rota_testar)
         self.aplicacao.router.add_post("/app/salvar", self.rota_salvar)
         self.aplicacao.router.add_post("/app/autostart", self.rota_autostart)
+        self.aplicacao.router.add_post("/app/senha-local", self.rota_senha_local)
         self.aplicacao.router.add_post("/app/abrir", self.rota_abrir)
         self.aplicacao.router.add_post("/app/janela", self.rota_janela)
         self.aplicacao.router.add_get("/app/{recurso:.*}", self.rota_pagina)
@@ -277,11 +281,19 @@ class Janela:
                 "painel": PAINEL,
                 "autostart": autostart_ativo(),
                 "autostart_disponivel": autostart_disponivel(),
-                "pagamentos_url": bool(self.url_pagamentos()),
+                "pagamentos_url": bool(self.pagamentos_ativos()),
             }
         )
         payload["campos"] = {
             campo: mascarar_fim(getattr(cfg, campo, "") if cfg else "") for campo in CAMPOS
+        }
+        # A extensão do Chrome precisa VER usuário/senha da API local; só a máscara sai daqui
+        # (o valor inteiro sai por /app/senha-local, sob o token da janela).
+        ligada = bool(cfg and int(cfg.local_api_port) > 0)
+        payload["extensao"] = {
+            "url": cfg.api_local_url if ligada else "",
+            "usuario": (cfg.api_local_usuario if ligada else "") or "",
+            "senha": mascarar_fim(cfg.api_local_senha) if ligada else "",
         }
         return payload
 
@@ -444,6 +456,52 @@ class Janela:
                 mensagem = "Configurações salvas. Reinicie o DropHunter para conectar."
         return {"ok": True, "mensagem": mensagem}, 200
 
+    # ------------------------------------------------------------- senha local
+    async def rota_senha_local(self, request):
+        """Mostrar/copiar/gerar a senha da API local — é o que a extensão do Chrome pede."""
+        try:
+            dados = await self._dados(request)
+        except (ValueError, TypeError, UnicodeError):
+            return web.json_response({"ok": False}, status=400, headers=CABECALHOS)
+        cfg = self.config_atual()
+        if cfg is None or int(cfg.local_api_port) <= 0:
+            return web.json_response(
+                {"ok": False, "mensagem": "Configure as chaves primeiro."},
+                status=400,
+                headers=CABECALHOS,
+            )
+        acao = dados.get("acao")
+        if acao not in ("mostrar", "gerar"):
+            return web.json_response({"ok": False}, status=400, headers=CABECALHOS)
+        if acao == "mostrar" and cfg.api_local_senha:
+            return web.json_response(
+                {"ok": True, "senha": cfg.api_local_senha, "mensagem": ""}, headers=CABECALHOS
+            )
+        async with self._gravacao:
+            return await self._trocar_senha_local(cfg)
+
+    async def _trocar_senha_local(self, cfg):
+        cfg.api_local_senha = gerar_senha()
+        try:
+            salvar(cfg, self.caminho)
+        except (ConfigInvalida, OSError):
+            return web.json_response(
+                {"ok": False, "mensagem": "Não deu pra gravar. Confira a permissão da pasta."},
+                status=500,
+                headers=CABECALHOS,
+            )
+        REDATOR.adicionar(cfg.api_local_senha)
+        mensagem = "Senha nova em uso. Atualize a extensão do Chrome com ela."
+        if self.ao_salvar:
+            try:
+                await self.ao_salvar(cfg)
+            except Exception as exc:  # noqa: BLE001 - a senha já está no disco
+                log.error("Falha ao reconectar: %s", REDATOR.texto(type(exc).__name__))
+                mensagem = "Senha nova gravada. Reinicie o DropHunter para ela valer."
+        return web.json_response(
+            {"ok": True, "senha": cfg.api_local_senha, "mensagem": mensagem}, headers=CABECALHOS
+        )
+
     # ---------------------------------------------------------------- comandos
     async def rota_autostart(self, request):
         from drophunter_agent.bandeja import (
@@ -494,9 +552,13 @@ class Janela:
         try:
             self._abrir(url)
         except Exception:  # noqa: BLE001 - navegador ausente não derruba o app
-            return web.json_response(
-                {"ok": False, "mensagem": "Abra no navegador: " + url}, headers=CABECALHOS
+            # O link de pagamento carrega o token de acesso: ele não é repetido na tela.
+            recado = (
+                "Não consegui abrir o navegador."
+                if alvo == "pagamentos"
+                else "Abra no navegador: " + url
             )
+            return web.json_response({"ok": False, "mensagem": recado}, headers=CABECALHOS)
         return web.json_response({"ok": True, "mensagem": ""}, headers=CABECALHOS)
 
     async def rota_janela(self, request):

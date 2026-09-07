@@ -106,7 +106,7 @@ steam_id64 = ""                       # opcional, 17 dígitos
 log_level = "INFO"
 local_api_port = 8765                  # 0 desliga
 api_local_usuario = "drophunter"
-api_local_senha = "..."                # gerada no init
+api_local_senha = "..."                # nasce sozinha na primeira subida
 ```
 
 `DROPHUNTER_HOME` muda a pasta; `--config caminho.toml` seleciona outro arquivo.
@@ -117,8 +117,14 @@ senha ou query na URL. Configurações sobrescritas têm backup também com perm
 
 ## Extensão Chrome
 
-Nas opções da extensão, use `http://127.0.0.1:8765` e o usuário/senha exibidos pelo `init`.
-A senha também fica no `agent.toml`; `status` não a exibe.
+Abra o app, vá em **Configurações** e procure o bloco **Extensão do Chrome**: ele mostra o
+endereço (`http://127.0.0.1:8765`), o usuário (`drophunter`) e a senha mascarada, com os
+botões **Mostrar**, **Copiar** e **Gerar nova senha**. É de lá que você copia os três valores
+para as opções da extensão — você não precisa abrir o `agent.toml` para nada.
+
+A senha da API local **nasce sozinha** na primeira subida do agente (o instalador grava
+`api_local_senha = ""` de propósito: instalador não inventa segredo). Gerar uma senha nova
+invalida a antiga na hora: a extensão fica com 401 até você colar a nova nela.
 `--porta-local` e `--sem-senha-local` continuam disponíveis no `init`.
 
 A API local mantém `/api/bot/status` e encaminha `/api/extension/ping`, `/api/sends/*`
@@ -211,11 +217,16 @@ separada, autorizada pelo responsável pelo projeto.
 ## Como o pagamento funciona e por que só você consegue autorizar
 
 O site solicita o pagamento da fatura, mas isso apenas cria um pedido na memória do
-agente. Abra `http://127.0.0.1:8765/pagar` **no PC em que o agente está rodando** (ou use
-sua `local_api_port`). Entre com o usuário e a senha locais, confira competência, valor,
-destino e vencimento, e clique em **Confirmar pagamento**. Você também pode cancelar.
-O telefone não autoriza esse pagamento. A API local precisa estar ligada e ter senha;
-se `api_local_senha` estiver vazia, configure-a no `agent.toml` e reinicie o agente.
+agente. **Abra a página pelo app**: no PC em que o agente está rodando, o cartão
+"Pagamentos pendentes" fica laranja e o botão **Ver e confirmar (1)** abre o navegador já
+autenticado (o mesmo item existe no menu da bandeja). Confira competência, valor, destino e
+vencimento e clique em **Confirmar pagamento**; dá para cancelar também.
+
+O link que o app abre carrega um token de acesso de uso único, válido por dez minutos, que o
+navegador troca por um cookie de sessão — por isso o navegador **não** pede usuário e senha.
+Quem abrir `http://127.0.0.1:8765/pagar` na mão vê a página "abra pelo DropHunter" (401):
+o consentimento é sempre um clique seu, nesta máquina. O telefone não autoriza esse
+pagamento. A extensão do Chrome continua entrando por Basic auth, nas rotas `/api/*`.
 
 O primeiro `hello_ok` fixa o Steam64 da plataforma na configuração local:
 

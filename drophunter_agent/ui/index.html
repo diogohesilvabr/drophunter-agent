@@ -18,9 +18,10 @@
     <dl class="resumo">
       <div><dt>Conta</dt><dd id="conta">—</dd></div>
       <div><dt>Último heartbeat</dt><dd id="heartbeat">—</dd></div>
-      <div><dt>Pagamentos pendentes</dt><dd id="pagamentos">0</dd></div>
+      <div id="cartao-pagamentos"><dt>Pagamentos pendentes</dt><dd id="pagamentos">0</dd></div>
     </dl>
     <div class="botoes">
+      <button type="button" id="ver-pagamentos" class="principal" hidden>Ver e confirmar</button>
       <button type="button" id="painel" class="principal">Abrir painel</button>
       <button type="button" id="ir-config">Configurações</button>
       <button type="button" id="minimizar">Minimizar pra bandeja</button>
@@ -69,6 +70,17 @@
                autocomplete="off">
         <div class="linha"><small id="atual-steam_id64" class="atual"></small></div>
         <small>17 dígitos começando com 7656. Vem do Testar do Empire.</small>
+      </fieldset>
+      <fieldset id="bloco-extensao" hidden>
+        <label>Extensão do Chrome</label>
+        <small>Nas opções da extensão, preencha os três valores abaixo. Eles valem só neste PC.</small>
+        <div class="linha"><span class="atual">Endereço: <code id="ext-url">—</code></span></div>
+        <div class="linha"><span class="atual">Usuário: <code id="ext-usuario">—</code></span></div>
+        <div class="linha"><span class="atual">Senha: <code id="ext-senha">—</code></span>
+          <button type="button" id="ext-mostrar">Mostrar</button>
+          <button type="button" id="ext-copiar">Copiar</button>
+          <button type="button" id="ext-gerar">Gerar nova senha</button></div>
+        <small>Gerar uma senha nova derruba a extensão até você colar a nova lá.</small>
       </fieldset>
       <label class="check" id="linha-autostart">
         <input id="autostart" type="checkbox"> Iniciar com o Windows

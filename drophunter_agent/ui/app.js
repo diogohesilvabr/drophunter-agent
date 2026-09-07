@@ -2,7 +2,7 @@
 const token = document.body.dataset.token;
 const $ = id => document.getElementById(id);
 const CAMPOS = ['licenca', 'empire_api_key', 'steam_api_key', 'steam_id64'];
-let ocupado = false, ultimo = null;
+let ocupado = false, ultimo = null, senhaLocal = '';
 
 const valores = () => Object.fromEntries(CAMPOS.map(k => [k, $(k).value.trim()]));
 
@@ -38,12 +38,47 @@ function pintar(e) {
   $('conta').textContent = e.conta || '—';
   $('heartbeat').textContent = e.estado === 'conectado' ? segundos(e.heartbeat_s) : '—';
   $('pagamentos').textContent = e.pagamentos;
+  const pendentes = e.pagamentos > 0 && e.pagamentos_url;
+  $('cartao-pagamentos').classList.toggle('alerta', !!pendentes);
+  $('ver-pagamentos').hidden = !pendentes;
+  $('ver-pagamentos').textContent = `Ver e confirmar (${e.pagamentos})`;
+  $('painel').classList.toggle('principal', !pendentes);
+  pintarExtensao(e);
   $('aviso').hidden = e.estado !== 'sem_config';
   $('linha-autostart').hidden = !e.autostart_disponivel;
   if (document.activeElement !== $('autostart')) $('autostart').checked = !!e.autostart;
   CAMPOS.forEach(k => {
     $('atual-' + k).textContent = e.campos[k] ? 'atual: ' + e.campos[k] : 'ainda não configurada';
   });
+}
+
+function pintarExtensao(e) {
+  const x = e.extensao || {};
+  $('bloco-extensao').hidden = !x.url;
+  $('ext-url').textContent = x.url || '—';
+  $('ext-usuario').textContent = x.usuario || '—';
+  $('ext-senha').textContent = senhaLocal || x.senha || '—';
+  $('ext-mostrar').textContent = senhaLocal ? 'Ocultar' : 'Mostrar';
+}
+
+async function copiar(texto) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch (erro) {
+    const campo = document.createElement('textarea');
+    campo.value = texto;
+    document.body.appendChild(campo);
+    campo.select();
+    const copiado = document.execCommand('copy');
+    campo.remove();
+    return copiado;
+  }
+}
+
+async function senha(acao) {
+  const r = await executar('senha-local', {acao: acao});
+  return r.ok ? r.senha : '';
 }
 
 async function atualizar() {
@@ -109,6 +144,27 @@ $('autostart').addEventListener('change', async () => {
     ? 'O DropHunter vai abrir junto com o Windows.' : 'O DropHunter não abre mais sozinho.', false);
   if (!r.ok) $('autostart').checked = !$('autostart').checked;
 });
+
+$('ext-mostrar').addEventListener('click', async () => {
+  senhaLocal = senhaLocal ? '' : await senha('mostrar');
+  if (ultimo) pintarExtensao(ultimo);
+  recado(senhaLocal ? 'Senha à mostra nesta tela.' : '', false);
+});
+
+$('ext-copiar').addEventListener('click', async () => {
+  const valor = senhaLocal || await senha('mostrar');
+  if (!valor) return;
+  recado(await copiar(valor) ? 'Senha copiada. Cole nas opções da extensão.'
+    : 'Não deu pra copiar. Use Mostrar e copie na mão.', false);
+});
+
+$('ext-gerar').addEventListener('click', async () => {
+  senhaLocal = await senha('gerar');
+  if (ultimo) pintarExtensao(ultimo);
+});
+
+$('ver-pagamentos').addEventListener('click', () =>
+  pedir('abrir', {alvo: 'pagamentos'}).catch(() => {}));
 
 $('painel').addEventListener('click', () => pedir('abrir', {alvo: 'painel'}).catch(() => {}));
 $('ir-config').addEventListener('click', () => mostrar('configuracoes'));
