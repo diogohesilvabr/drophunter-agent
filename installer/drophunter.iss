@@ -155,7 +155,7 @@ var
 
 function CaminhoConfig(): String;
 begin
-  Result := ExpandConstant('{userprofile}\.drophunter\agent.toml');
+  Result := ExpandConstant('{%USERPROFILE}\.drophunter\agent.toml');
 end;
 
 function ManterOQueJaTem(): Boolean;
