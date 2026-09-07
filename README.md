@@ -244,8 +244,16 @@ ambos. A gravação preserva os demais campos e cria backup privado com permiss�
 Cada formulário tem um token de uso único, válido por dez minutos; atualizar a página
 invalida o formulário anterior. A confirmação verifica novamente destino, teto e prazo.
 Sem canal conectado ela responde **503: reconecte o agente**; se o servidor pediu parada,
-responde **503: parado**. Pedidos sobrevivem à reconexão enquanto o processo estiver vivo.
-O pedido precisa vencer em até 24 horas e o valor ter no máximo duas casas decimais.
+responde **503: parado**. O pedido precisa vencer em até 24 horas e o valor ter no máximo
+duas casas decimais.
+
+**Um pedido pendente sobrevive a reinício do agente** (4.0.0b5): ele fica em
+`~/.drophunter/pagamentos_pendentes.json` (600, só id, fatura, competência, valor, destino e
+vencimento — nenhum segredo) e volta na subida, sem os vencidos. Na conexão o agente manda a
+lista de ids no `hello` (`pagamentos_pendentes`) e o servidor reenvia só o que faltar; pedido
+com id repetido é ignorado, então o consentimento continua sendo pedido uma vez só. Se esse
+arquivo não puder ser lido ou gravado, o agente sobe do mesmo jeito — o pior caso é o
+servidor reenviar o pedido.
 
 Somente esse clique chama o Tip do Empire, com `steam_id` e o valor convertido em centavos
 de coin: 6,17 coins → `amount: "617"`. A chave é usada localmente. O proxy continua
@@ -253,14 +261,14 @@ recusando `/user/tip`. Dois cliques não geram dois Tips; os pedidos são proces
 vez, e o diário `~/.drophunter/pagamentos.jsonl` (600) impede repetir os IDs após reinício.
 `DROPHUNTER_HOME`, quando definido, muda a pasta da configuração e do diário.
 
-O campo **Código 2FA** é opcional: só preencha se o Empire recusar pedindo 2FA. Após uma
-recusa explícita, solicite outro pedido no site e confirme na página local com o código.
-Ele vai apenas ao Empire como `code`; não é salvo nem enviado ao servidor DropHunter.
-O nome desse campo ainda precisa ser comprovado no primeiro pagamento real.
+**Não há campo de 2FA** (desde a 4.0.0b5). A API do Empire não exige código: provado em
+07/09/2026 com dois pagamentos reais, o segundo com o campo deliberadamente vazio (o *site*
+do Empire pede MFA num Tip manual; a API com chave, não). O corpo do Tip leva só destino e
+valor. Se um formulário antigo ainda postar `codigo_2fa`, o campo é ignorado.
 
 Se houver timeout, resposta inconclusiva ou queda no meio do pagamento, **confira o
 extrato antes de tentar novamente**. A fatura fica reservada no diário para evitar uma
 segunda cobrança. Não apague o diário para repetir: confirme pelo extrato e peça a
 reconciliação no site. Um resultado obtido durante queda do canal fica na memória e é
 reenviado na reconexão; se o processo encerrar antes disso, a reconciliação é necessária.
-O diário guarda somente IDs, estado e data, sem chave, código 2FA ou saldo.
+O diário guarda somente IDs, estado e data, sem chave nem saldo.

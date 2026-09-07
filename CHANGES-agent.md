@@ -1,3 +1,23 @@
+## 4.0.0b5 (07/09/2026) — sem campo de 2FA e pedido pendente que sobrevive a reinicio
+
+Motivo: o primeiro pagamento real (07/09 00h47, cliente `liz.yara`, duas faturas por Tip)
+funcionou e mostrou duas arestas do lado do agente.
+
+- **Campo "Codigo 2FA" removido** da pagina `/pagar`, do POST e do corpo do Tip. A API do
+  Empire nao exige 2FA — provado com dois pagamentos reais (`success: true`, HTTP 200), o
+  segundo com o campo vazio. Formulario antigo que ainda poste `codigo_2fa` e ignorado (nao
+  vira 400: aba velha do cliente tem que funcionar). O `code` que o Empire por acaso devolva
+  na resposta continua mascarado no log e no quadro `fatura_paga`.
+- **Pedido pendente e duravel**: cada `pagar_fatura` aceito vai pra
+  `~/.drophunter/pagamentos_pendentes.json` (600, escrita atomica) e volta na subida, sem os
+  vencidos. Confirmar, cancelar e expirar tiram do arquivo. O diario de idempotencia
+  (`pagamentos.jsonl`) continua separado: pendente e "ainda nao decidido", o diario e
+  "tentativa de Tip ja iniciada".
+- **`hello` leva `pagamentos_pendentes`** (lista de ids). O servidor compara com os pedidos
+  vivos dele e reenvia so o que faltar; id repetido e ignorado pelo agente.
+- Arquivo ilegivel ou disco sem permissao nao derruba o agente nem recusa pagamento: loga e
+  segue (o servidor reenvia).
+
 ## 4.0.0b4 (07/09/2026) — pagamento sem atrito: senha local automatica e pagina do app
 
 Motivo: no primeiro pagamento real (07/09 00h20) o cliente clicou em "Pagamentos pendentes",

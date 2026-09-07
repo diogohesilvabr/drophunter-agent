@@ -286,11 +286,6 @@ class ApiLocal:
                 "<div><dt>Vence em (UTC)</dt><dd>" + escape(vencimento) + "</dd></div></dl>"
                 '<form method="post" action="/pagar/' + alvo + '/confirmar">'
                 '<input type="hidden" name="token" value="' + token + '">'
-                "<fieldset><label for=\"codigo_2fa-" + alvo + '">Código 2FA (opcional)</label>'
-                '<input id="codigo_2fa-' + alvo + '" type="password" name="codigo_2fa" '
-                'inputmode="numeric" autocomplete="off" maxlength="8">'
-                "<small>Só preencha se o Empire recusar pedindo 2FA. Nesse caso, solicite "
-                "um novo pedido no site e confirme aqui com o código.</small></fieldset>"
                 '<div class="botoes">'
                 '<button type="submit" class="principal">Confirmar pagamento</button>'
                 '<button type="submit" formaction="/pagar/'
@@ -308,11 +303,10 @@ class ApiLocal:
     async def _autorizar(self, request, *, cancelar=False):
         try:
             dados = await request.post()
+            # Campo extra no formulario (pagina antiga em aba velha) e ignorado: o unico
+            # dado que o consentimento usa e o token do pedido.
             resposta = await self.canal.pagamentos.autorizar(
-                request.match_info["id"],
-                dados.get("token"),
-                cancelar=cancelar,
-                codigo_2fa=dados.get("codigo_2fa", ""),
+                request.match_info["id"], dados.get("token"), cancelar=cancelar
             )
         except PagamentoLocalErro as exc:
             return self._pagina(

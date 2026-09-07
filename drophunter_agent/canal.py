@@ -183,6 +183,9 @@ class Canal:
 
     async def _operar(self) -> None:
         uid = await self.feed.preparar()
+        # Os vencidos saem antes de contar: o servidor reenvia o que ele tem e nao esta
+        # nesta lista, e um pedido morto nao pode bloquear o reenvio do vivo.
+        await self.pagamentos.expirar()
         hello = {
             "t": "hello",
             "version": __version__,
@@ -192,6 +195,7 @@ class Canal:
             "empire_user_id": uid,
             "local_api_port": self.cfg.local_api_port,
             "steam_configurada": bool(self.cfg.steam_api_key),
+            "pagamentos_pendentes": self.pagamentos.ids_pendentes(),
         }
         if self.cfg.steam_id64:
             hello["steam_id64"] = self.cfg.steam_id64
