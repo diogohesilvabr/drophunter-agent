@@ -177,6 +177,55 @@ No checkout privado, rode cada arquivo separadamente:
 .venv/bin/python -m pytest -q tests/test_agent_local_api_v4.py -p no:cacheprovider
 ```
 
+## Linux: instalar e manter o serviço
+
+Use o asset `drophunter-agent-linux-x86_64` da release publicada. Confira o SHA-256
+contra `SHA256SUMS.txt` antes da primeira instalação, coloque o binário em
+`~/.local/bin/drophunter-agent`, dê permissão de execução e rode como dono:
+
+```bash
+~/.local/bin/drophunter-agent init
+```
+
+O exemplo `examples/drophunter-agent.service` é uma **unit de sistema**. Ajuste
+`User`, `Group` e todos os caminhos para o dono. Após criar a configuração, um
+administrador copia a unit para `/etc/systemd/system/`, executa
+`systemctl daemon-reload` e `systemctl enable --now drophunter-agent.service`.
+A configuração, licença e chaves ficam em `~/.drophunter/agent.toml`; nunca na unit.
+O serviço só pode escrever em `~/.drophunter/`, tem reinício automático após falha
+ou boot e envia os logs ao journal (`journalctl -u drophunter-agent.service -f`).
+
+Com o serviço conectado, execute como dono, em outro terminal:
+
+```bash
+~/.local/bin/drophunter-agent status
+~/.local/bin/drophunter-agent atualizar --dry-run
+~/.local/bin/drophunter-agent atualizar
+```
+
+`status` mostra versão instalada no comando, versão disponível no servidor e data/duração
+da conexão atual. A duração zera a cada reconexão. Os comandos usam o socket privado
+`~/.drophunter/controle.sock` do processo `run` (4.0.3 ou posterior), inclusive se a API
+local estiver desligada; não abrem outra sessão por licença. Use o mesmo `--config`
+antes do subcomando se mudou o caminho. Configurações com outros nomes ganham
+sockets e locks distintos na própria pasta. Offline ou sem consulta de versão, `status`
+informa indisponibilidade e `atualizar` falha sem alterar o executável. A primeira
+instalação desta versão sobre agentes antigos é manual, pois eles não têm esse socket.
+
+A versão vem do servidor por `update_check`. O asset Linux é escolhido na mesma release
+pinada da oferta e conferido contra sua entrada única no `SHA256SUMS.txt`. Download e
+conferência são compartilhados com o Windows. O binário só é instalado após a conferência,
+num rename atômico de um temporário no mesmo filesystem. O processo em execução segue
+usando o binário antigo até reiniciar. Falha na consulta, download, hash ou troca retorna
+código diferente de zero e preserva o executável atual; versão igual ou superior retorna 0.
+`--dry-run` consulta e mostra o plano sem baixar nem gravar arquivos de atualização.
+Instalação automática exige o binário empacotado Linux x86_64, não uma instalação via pip.
+
+Execute a atualização **fora do serviço**, como dono da pasta do binário: o sandbox da
+unit mantém essa pasta somente leitura. Após sucesso, peça ao administrador para executar
+`systemctl restart drophunter-agent.service`. O comando apenas lembra do reinício; nunca o
+executa. Nenhuma tag ou release é publicada por ele.
+
 ## Build
 
 Linha de comando (Linux e Windows):

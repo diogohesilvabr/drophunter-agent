@@ -1,4 +1,4 @@
-"""CLI: drophunter-agent init | run | status | --version. Mensagens em pt-BR."""
+"""CLI: drophunter-agent init | run | status | atualizar | --version. Mensagens em pt-BR."""
 
 from __future__ import annotations
 
@@ -6,10 +6,15 @@ import argparse
 import asyncio
 import contextlib
 import getpass
+import hashlib
+import json
 import os
+import platform
 import signal
 import sys
+import time
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
 
 from drophunter_agent import __version__
@@ -58,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub.add_parser("run", help="roda o agente em primeiro plano")
     sub.add_parser("status", help="mostra a config (sem segredos) e testa o servidor")
+    p_update = sub.add_parser("atualizar", help="consulta, confere e atualiza o binário Linux")
+    p_update.add_argument("--dry-run", action="store_true", help="só mostra o que faria")
     args = parser.parse_args(argv)
 
     if args.comando is None:
@@ -73,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.comando == "status":
             return cmd_status(args.config)
+        if args.comando == "atualizar":
+            return cmd_atualizar(args.config, dry_run=args.dry_run)
         if args.comando == "run":
             return cmd_run(args.config)
     except ConfigInvalida as exc:
@@ -175,7 +184,9 @@ def cmd_init(
             file=sys.stderr,
         )
         return 2
-    steam_id64 = input("Seu Steam ID64 (17 digitos, comeca com 7656 - veja em steamid.io): ").strip()
+    steam_id64 = input(
+        "Seu Steam ID64 (17 digitos, comeca com 7656 - veja em steamid.io): "
+    ).strip()
     if not steam64_valido(steam_id64):
         print("ERRO: Steam ID64 invalido (17 digitos comecando com 7656).", file=sys.stderr)
         return 2
@@ -196,7 +207,9 @@ def cmd_init(
     print(f"\nConfig gravada em {gravado}.")
     _imprimir_extensao(cfg, mostrar_senha=True)
     if simples:
-        print("\nPronto! Conectando ao DropHunter... (deixe esta janela aberta; feche pra parar o bot)")
+        print(
+            "\nPronto! Conectando ao DropHunter... (deixe esta janela aberta; feche pra parar o bot)"
+        )
     else:
         print("Proximo passo: drophunter-agent run")
     return 0
@@ -238,6 +251,7 @@ def cmd_status(caminho: Path | None) -> int:
     for s in cfg.segredos():
         REDATOR.adicionar(s)
     print(f"DropHunter Agent {__version__}")
+    print(f"  versão instalada: {__version__}")
     print(f"  config:        {cfg.caminho}")
     print(f"  servidor:      {cfg.server_url}")
     print(f"  licenca:       {mascarar(cfg.licenca)}")
@@ -251,6 +265,23 @@ def cmd_status(caminho: Path | None) -> int:
         print(f"  API local:     {cfg.api_local_url} ({auth}) - extensao Chrome")
     else:
         print("  API local:     desligada (local_api_port = 0)")
+    try:
+        estado = asyncio.run(consultar_local(cfg))
+        numero = (estado.get("oferta") or {}).get("version", "")
+        from drophunter_agent.atualizacao import versao
+
+        try:
+            versao(numero)
+        except (ValueError, TypeError):
+            numero = "indisponível"
+        print(f"  versão disponível no servidor: {numero}")
+        if estado.get("desde"):
+            print(f"  canal: desde {estado['desde']} (há {estado['uptime_s']} s)")
+        else:
+            print("  canal: desconectado")
+    except (OSError, ValueError, TimeoutError):
+        print("  versão disponível no servidor: indisponível")
+        print("  canal: indisponível; execute o agente com run (4.0.3 ou posterior)")
     print(f"  servidor:      {_testar_servidor(cfg.server_url)}")
     return 0
 
@@ -293,7 +324,14 @@ def cmd_run(caminho: Path | None) -> int:
     for s in cfg.segredos():
         REDATOR.adicionar(s)
     agente = Agente(cfg)
-    return asyncio.run(_rodar(agente))
+
+    async def executar():
+        if sys.platform == "linux":
+            async with ControleLocal(cfg, agente.canal):
+                return await _rodar(agente)
+        return await _rodar(agente)
+
+    return asyncio.run(executar())
 
 
 async def _rodar(agente) -> int:
@@ -314,3 +352,154 @@ async def _rodar(agente) -> int:
     with contextlib.suppress(asyncio.CancelledError):
         await agente.executar()
     return 0 if agente.motivo_parada is None else 3
+
+
+def _socket_controle(cfg):
+    config = Path(cfg.caminho or caminho_config()).resolve()
+    sufixo = (
+        ""
+        if config.name == "agent.toml"
+        else "-" + hashlib.sha256(config.name.encode()).hexdigest()[:12]
+    )
+    return config.parent / f"controle{sufixo}.sock"
+
+
+# Controle Unix fica no processo de console: não abre outro hello nem expõe credenciais.
+class ControleLocal:
+    def __init__(self, cfg, canal):
+        self.canal = canal
+        self.socket = _socket_controle(cfg)
+        self.desde = None
+        self.inicio = None
+        self.despachar = canal._despachar
+        self.servidor = None
+        self.trava = None
+
+    async def _despachar(self, quadro):
+        online = self.canal.online
+        await self.despachar(quadro)
+        if not online and self.canal.online:
+            self.desde = datetime.now(UTC).isoformat()
+            self.inicio = time.monotonic()
+
+    async def __aenter__(self):
+        import fcntl
+        import stat
+
+        self.trava = os.open(self.socket.with_suffix(".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(self.trava, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if self.socket.exists():
+                if not stat.S_ISSOCK(self.socket.lstat().st_mode):
+                    raise OSError("controle.sock não é um socket")
+                self.socket.unlink()
+            self.servidor = await asyncio.start_unix_server(self._atender, path=self.socket)
+            self.socket.chmod(0o600)
+            self.canal._despachar = self._despachar
+            return self
+        except BaseException:
+            if self.servidor:
+                self.servidor.close()
+                await self.servidor.wait_closed()
+                self.socket.unlink(missing_ok=True)
+            os.close(self.trava)
+            self.trava = None
+            raise
+
+    async def __aexit__(self, *_):
+        self.canal._despachar = self.despachar
+        self.servidor.close()
+        await self.servidor.wait_closed()
+        self.socket.unlink(missing_ok=True)
+        os.close(self.trava)
+
+    async def _atender(self, leitor, escritor):
+        try:
+            async with asyncio.timeout(20):
+                pedido = await leitor.readline()
+                if pedido != b"status\n":
+                    return
+                oferta, erro = None, ""
+                if self.canal.online:
+                    try:
+                        oferta = await self.canal.consultar_atualizacao()
+                    except Exception:
+                        erro = "Servidor não respondeu à consulta de versão"
+                else:
+                    erro = "Canal offline; aguarde a conexão do agente"
+                online = self.canal.online
+                resposta = dict(
+                    oferta=oferta,
+                    erro=erro,
+                    desde=self.desde if online else None,
+                    uptime_s=int(time.monotonic() - self.inicio)
+                    if online and self.inicio is not None
+                    else None,
+                )
+                escritor.write(json.dumps(resposta).encode() + b"\n")
+                await escritor.drain()
+        except (OSError, ValueError, TimeoutError):
+            pass
+        finally:
+            escritor.close()
+            with contextlib.suppress(OSError):
+                await escritor.wait_closed()
+
+
+async def consultar_local(cfg):
+    if sys.platform != "linux":
+        raise OSError("Controle local de serviço disponível no Linux")
+    async with asyncio.timeout(22):
+        leitor, escritor = await asyncio.open_unix_connection(_socket_controle(cfg))
+        try:
+            escritor.write(b"status\n")
+            await escritor.drain()
+            resposta = json.loads(await leitor.readline())
+            if not isinstance(resposta, dict):
+                raise ValueError("Resposta local inválida")
+            return resposta
+        finally:
+            escritor.close()
+            await escritor.wait_closed()
+
+
+def cmd_atualizar(caminho, *, dry_run=False):
+    from drophunter_agent.atualizacao import Atualizacao
+
+    cfg = carregar(caminho)
+    for segredo in cfg.segredos():
+        REDATOR.adicionar(segredo)
+
+    async def atualizar():
+        if platform.system() != "Linux" or platform.machine().lower() not in ("x86_64", "amd64"):
+            raise OSError("Este comando exige Linux x86_64; no Windows use o app")
+        estado = await consultar_local(cfg)
+        if estado.get("erro") or not estado.get("oferta"):
+            raise OSError(estado.get("erro") or "Versão indisponível no servidor")
+
+        class CanalLocal:
+            online = True
+
+            async def consultar_atualizacao(self):
+                return estado["oferta"]
+
+        atualizacao = Atualizacao(lambda: CanalLocal(), sistema="Linux")
+        await atualizacao.procurar()
+        if atualizacao.estado["erro"]:
+            raise ValueError(atualizacao.estado["mensagem"])
+        if atualizacao.oferta:
+            if not getattr(sys, "frozen", False) and not dry_run:
+                raise OSError("Instalação exige o binário Linux empacotado; não substitui Python")
+            destino = Path(sys.executable).resolve()
+            await atualizacao.instalar_linux(destino, dry_run=dry_run)
+        print(REDATOR.texto(atualizacao.estado["mensagem"]))
+        return 0
+
+    try:
+        return asyncio.run(atualizar())
+    except Exception as exc:
+        print(
+            REDATOR.texto(f"ERRO: atualização não instalada ({type(exc).__name__}): {exc}"),
+            file=sys.stderr,
+        )
+        return 1

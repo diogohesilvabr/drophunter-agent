@@ -1,0 +1,36 @@
+# Instalação por administrador, após ajustar User/Group e todos os caminhos do dono:
+# cp agent/examples/drophunter-agent.service /etc/systemd/system/
+# systemctl daemon-reload
+# systemctl enable --now drophunter-agent.service
+# Antes: instalar o binário em ~/.local/bin/drophunter-agent e executar init como dono.
+# Config, licença e chaves ficam em ~/.drophunter/, nunca nesta unit.
+# Atualizar como dono fora do serviço; depois o administrador reinicia a unit.
+
+[Unit]
+Description=DropHunter 4.0 agente proxy Linux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=diogohesilva
+Group=diogohesilva
+WorkingDirectory=/home/diogohesilva
+ExecStart=/home/diogohesilva/.local/bin/drophunter-agent --config /home/diogohesilva/.drophunter/agent.toml run
+Restart=always
+RestartSec=5
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/diogohesilva/.drophunter
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

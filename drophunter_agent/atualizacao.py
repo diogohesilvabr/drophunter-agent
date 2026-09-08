@@ -21,7 +21,7 @@ from drophunter_agent import __version__
 
 PAINEL = "https://www.drophunter.com.br/painel/"
 RELEASE = "/diogohesilvabr/drophunter-agent/releases/download/"
-HOSTS = {"github.com", "objects.githubusercontent.com"}
+HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 
 
 def versao(valor):
@@ -46,7 +46,7 @@ def validar_url(url):
     return p
 
 
-def metadados(quadro):
+def metadados(quadro, sistema="Windows"):
     numero = quadro["version"]
     versao(numero)
     url = quadro["url"]
@@ -57,9 +57,23 @@ def metadados(quadro):
         p.hostname != "github.com"
         or not p.path.startswith(prefixo)
         or p.query
-        or nome not in {"DropHunter-Setup.exe", f"DropHunter-Setup-{numero}.exe"}
+        or nome
+        not in (
+            {"DropHunter-Setup.exe", f"DropHunter-Setup-{numero}.exe"}
+            | ({"drophunter-agent-linux-x86_64"} if sistema == "Linux" else set())
+        )
     ):
         raise ValueError("Use o instalador da release oficial pinada")
+    if sistema == "Linux":
+        nome = "drophunter-agent-linux-x86_64"
+        url = urljoin(url, nome)
+        return dict(
+            version=numero,
+            url=url,
+            sha256=None,
+            nome=nome,
+            manifesto=urljoin(url, "SHA256SUMS.txt"),
+        )
     sha = quadro["sha256"]
     if not isinstance(sha, str) or not re.fullmatch("[a-fA-F0-9]{64}", sha):
         raise ValueError("Servidor ainda não publicou a conferência desta versão")
@@ -150,10 +164,10 @@ class Atualizacao:
             self.oferta = None
             self._estado(f"Você já está na versão mais recente ({self.versao}).")
             return
-        self.oferta = metadados(quadro)
+        self.oferta = metadados(quadro, self.sistema)
         if self.sistema != "Windows":
             self._estado(
-                "Atualização automática só no Windows; baixe o binário novo pelo painel.",
+                "Versão disponível. Execute drophunter-agent atualizar no terminal.",
                 url=self.oferta["url"],
             )
         else:
@@ -241,29 +255,7 @@ class Atualizacao:
             pasta = Path(tempfile.mkdtemp(prefix="drophunter-update-", dir=self.pasta_temp))
             arquivo = pasta / "DropHunter-Setup.exe"
             manifesto = pasta / "SHA256SUMS.txt"
-            self._estado("Baixando… 0%", acao="aguardar")
-            async with httpx.AsyncClient(
-                transport=self.transport, follow_redirects=False, trust_env=False, timeout=30
-            ) as cliente:
-                async with asyncio.timeout(900):
-                    await self._baixar(cliente, oferta["manifesto"], manifesto, 65536)
-                    linhas = [linha.split() for linha in manifesto.read_text().splitlines()]
-                    hashes = [
-                        p[0].lower()
-                        for p in linhas
-                        if len(p) == 2 and p[1].lstrip("*") == oferta["nome"]
-                    ]
-                    if hashes != [oferta["sha256"]]:
-                        raise ValueError("Manifesto divergente")
-                    await self._baixar(cliente, oferta["url"], arquivo, 512 * 1024 * 1024, True)
-            self._estado("Conferindo o arquivo…", acao="aguardar")
-
-            def conferir():
-                with arquivo.open("rb") as entrada:
-                    return hashlib.file_digest(entrada, "sha256").hexdigest()
-
-            if await asyncio.to_thread(conferir) != oferta["sha256"]:
-                raise ValueError("SHA-256 divergente")
+            await self.baixar_conferir(oferta, arquivo, manifesto)
             processo = self.iniciar_instalador(arquivo, oferta["sha256"])
             # O supervisor agora possui a pasta. Fechar a janela não pode apagar o
             # instalador antes que o processo independente termine de usá-lo.
@@ -289,3 +281,54 @@ class Atualizacao:
                 shutil.rmtree(pasta, ignore_errors=True)
             self.ocupado = False
             self.estado["ocupado"] = False
+
+    async def baixar_conferir(self, oferta, arquivo, manifesto):
+        self._estado("Baixando… 0%", acao="aguardar")
+        async with httpx.AsyncClient(
+            transport=self.transport, follow_redirects=False, trust_env=False, timeout=30
+        ) as cliente:
+            async with asyncio.timeout(900):
+                await self._baixar(cliente, oferta["manifesto"], manifesto, 65536)
+                linhas = [linha.split() for linha in manifesto.read_text().splitlines()]
+                hashes = [
+                    p[0].lower()
+                    for p in linhas
+                    if len(p) == 2 and p[1].lstrip("*") == oferta["nome"]
+                ]
+                if (
+                    len(hashes) != 1
+                    or not re.fullmatch("[a-f0-9]{64}", hashes[0])
+                    or (oferta["sha256"] is not None and hashes != [oferta["sha256"]])
+                ):
+                    raise ValueError("Manifesto divergente")
+                await self._baixar(cliente, oferta["url"], arquivo, 512 * 1024 * 1024, True)
+        self._estado("Conferindo o arquivo…", acao="aguardar")
+
+        def conferir():
+            with arquivo.open("rb") as entrada:
+                return hashlib.file_digest(entrada, "sha256").hexdigest()
+
+        if await asyncio.to_thread(conferir) != hashes[0]:
+            raise ValueError("SHA-256 divergente")
+
+    async def instalar_linux(self, destino: Path, *, dry_run=False):
+        if self.sistema != "Linux":
+            raise OSError("Troca atômica exige Linux")
+        if not self.oferta:
+            return
+        oferta = dict(self.oferta)
+        if dry_run:
+            self._estado(
+                f"Simulação: baixar {oferta['url']}, conferir SHA256SUMS.txt "
+                f"e substituir {destino}; depois reiniciar o serviço."
+            )
+            return
+        # O temporário fica no mesmo filesystem; nunca abrir o executável em uso para escrita.
+        with tempfile.TemporaryDirectory(
+            prefix=".drophunter-update-", dir=destino.parent, ignore_cleanup_errors=True
+        ) as pasta:
+            arquivo = Path(pasta) / oferta["nome"]
+            await self.baixar_conferir(oferta, arquivo, Path(pasta) / "SHA256SUMS.txt")
+            arquivo.chmod(0o755)
+            os.replace(arquivo, destino)
+        self._estado("Atualização instalada. É preciso reiniciar o serviço drophunter-agent.")
