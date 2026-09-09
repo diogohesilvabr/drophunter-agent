@@ -1,3 +1,19 @@
+## 4.0.6 (09/09/2026) — o instalador consegue fechar o app
+
+Motivo: print do Diogo instalando a 4.0.5 por cima da 4.0.2 — *"O instalador foi incapaz de
+fechar automaticamente todos os aplicativos."*, travado em "Fechando aplicativos".
+
+A causa e nossa e e especifica: `App.ao_fechar()` devolve **False** quando existe bandeja —
+o "X" da janela minimiza em vez de fechar, que e o comportamento certo pro usuario. So que o
+Restart Manager do Inno fecha aplicativo mandando exatamente esse mesmo `WM_CLOSE`. Ele
+mandava, o app minimizava, o arquivo continuava travado, e o instalador desistia.
+
+- `CloseApplications=yes` -> **`force`** no `drophunter.iss`: o que o Restart Manager nao
+  fechar com jeito, o instalador encerra. E seguro — licenca, chaves e pagamentos pendentes
+  vao pro disco com escrita atomica, e a secao de execucao pos-instalacao reabre o app.
+- `ao_fechar` fica como esta: minimizar pra bandeja no "X" e o que o cliente espera, e o
+  evento do pywebview nao distingue "usuario clicou no X" de "instalador pediu pra fechar".
+
 ## 4.0.5 (09/09/2026) — o aviso da bandeja so aparece quando cai de verdade
 
 Motivo: *"direto fica falando DropHunter conectado, como se tivesse caindo... esse alerta so

@@ -63,7 +63,13 @@ WizardSmallImageFile=build\icone\wizard-pequeno.bmp,build\icone\wizard-pequeno-2
 Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64
-CloseApplications=yes
+; force, nao yes (09/09): o "X" da janela do app MINIMIZA pra bandeja em vez de fechar
+; (ao_fechar devolve False), entao o Restart Manager manda WM_CLOSE e nao acontece nada —
+; o instalador travava em "Fechando aplicativos" com "foi incapaz de fechar automaticamente
+; todos os aplicativos". Com force ele encerra o processo. E seguro: tudo que o agente
+; guarda (licenca, chaves, pagamentos pendentes) vai pro disco com escrita atomica, e a
+; secao de execucao pos-instalacao reabre o app no fim.
+CloseApplications=force
 RestartApplications=no
 SetupMutex=DropHunterAgentSetup
 ; O Setup manipula licença e chaves: nada disso pode acabar num arquivo de log.
