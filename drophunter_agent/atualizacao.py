@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 import os
 import platform
 import re
@@ -18,6 +19,8 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from drophunter_agent import __version__
+
+log = logging.getLogger("drophunter.atualizacao")
 
 PAINEL = "https://www.drophunter.com.br/painel/"
 RELEASE = "/diogohesilvabr/drophunter-agent/releases/download/"
@@ -207,6 +210,7 @@ class Atualizacao:
             quadro = await canal.consultar_atualizacao()
             self._oferecer(quadro)
         except Exception:  # resposta/timeout/rede não podem parar o agente
+            log.warning("Não consegui consultar a versão", exc_info=True)
             self._estado(
                 "Não consegui consultar a versão. Tente de novo ou baixe pelo painel.",
                 erro=True,
@@ -270,6 +274,7 @@ class Atualizacao:
                 self._estado("Atualização instalada. Reabrindo o programa.", acao="aguardar")
                 shutil.rmtree(pasta_instalacao, ignore_errors=True)
         except Exception:  # nenhuma falha de atualização encerra canal, proxy ou feed
+            log.warning("Não consegui baixar, conferir ou instalar", exc_info=True)
             self.oferta = None
             self._estado(
                 "Não consegui baixar, conferir ou instalar. Tente de novo ou baixe pelo painel.",

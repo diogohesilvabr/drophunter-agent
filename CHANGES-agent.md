@@ -1,3 +1,26 @@
+## 4.0.4 (09/09/2026) — a janela cabe no quadrado e a falha de atualizacao deixa rastro
+
+Motivo: print do Diogo com o app 4.0.2 — *"olha o tamanho deste app, desproporcional"* — e
+o botao Procurar atualizacao respondendo *"Nao consegui baixar, conferir ou instalar."*
+
+- **Janela 880x540** (era 980x720, `min_size` agora 680x420) e o cartao passa a preencher a
+  largura (`max-width: 840px`) em vez de boiar em 720px no meio de uma faixa vazia. O
+  "Conectado" cai de 30px para 24px e os espacos internos encolhem junto. Medido no mesmo
+  viewport do print, nao no olho: o estado mais cheio que a tela tem (pagamento pendente +
+  erro de atualizacao + os dois botoes extras) fecha em 396px de altura.
+- **A logo vira emblema + texto** `Drop`/`Hunter`, igual ao cabecalho do site. A `logo.png`
+  tem o "Drop" em azul-marinho, que desaparecia no fundo escuro quando reduzida a 56px de
+  altura. `assets/logo-emblema.png` entrou na lista branca de estaticos do `janela.py`.
+- **As falhas de atualizacao vao para o `drophunter.log`** com traceback. O `except Exception`
+  engolia tudo e nao sobrava rastro em canto nenhum — nem no PC do cliente, nem no servidor.
+  A mensagem na tela continua a mesma.
+
+**Sobre o erro do 4.0.2:** nao era o servidor. O GitHub redireciona download de asset de
+release para `release-assets.githubusercontent.com`, host que so entrou na lista branca no
+**4.0.3**. Todo agente 4.0.2 e anterior falha ao se atualizar por isso, e a correcao so vale
+depois de instalada — quem estiver em 4.0.2 instala uma vez pelo painel e dai em diante o
+botao funciona.
+
 ## 4.0.0b5 (07/09/2026) — sem campo de 2FA e pedido pendente que sobrevive a reinicio
 
 Motivo: o primeiro pagamento real (07/09 00h47, cliente `liz.yara`, duas faturas por Tip)

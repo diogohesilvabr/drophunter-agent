@@ -277,9 +277,9 @@ class Aplicativo:
             self.nativa = webview.create_window(
                 "DropHunter",
                 self.url,
-                width=980,
-                height=720,
-                min_size=(720, 560),
+                width=880,
+                height=540,
+                min_size=(680, 420),
                 background_color="#0b0f17",
                 text_select=False,
             )

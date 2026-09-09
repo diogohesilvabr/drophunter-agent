@@ -47,6 +47,7 @@ ESTATICOS = {
     "app.css": ("app.css", "text/css"),
     "app.js": ("app.js", "text/javascript"),
     "assets/logo.png": ("assets/logo.png", "image/png"),
+    "assets/logo-emblema.png": ("assets/logo-emblema.png", "image/png"),
 }
 CABECALHOS = {
     "Cache-Control": "no-store",
