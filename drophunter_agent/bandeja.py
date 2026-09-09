@@ -6,6 +6,7 @@ import contextlib
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from drophunter_agent import __version__
@@ -15,6 +16,11 @@ log = logging.getLogger("drophunter.bandeja")
 
 REGISTRO = r"Software\Microsoft\Windows\CurrentVersion\Run"
 NOME_REGISTRO = "DropHunter"
+#: Queda menor que isto nao vira aviso na bandeja. Ordem do Diogo em 09/09: um ping
+#: que nao chegou reconecta em segundos, e avisar cada piscada e so poluicao. Só
+#: interessa o que ficou fora de verdade. O Telegram do cliente tem a própria
+#: carência, maior (vigia do servidor).
+SEGUNDOS_FORA_PARA_AVISAR = 180
 #: laranja = conectado, cinza = desconectado, vermelho = licença recusada (identidade do site)
 CORES = {
     "conectado": (239, 125, 43, 255),
@@ -26,6 +32,14 @@ CORES = {
 
 def cor_estado(estado) -> tuple[int, int, int, int]:
     return CORES.get(estado, CORES["desconectado"])
+
+
+def _duracao(segundos) -> str:
+    minutos = int(segundos) // 60
+    if minutos < 60:
+        return f"{minutos} min"
+    horas, resto = divmod(minutos, 60)
+    return f"{horas} h" if not resto else f"{horas} h {resto} min"
 
 
 def autostart_disponivel() -> bool:
@@ -100,6 +114,7 @@ class Bandeja:
 
         self.estado = {"estado": "desconectado", "rotulo": "Desconectado", "pagamentos": 0}
         self._ultimo = None
+        self._fora_desde = time.monotonic()
         self.icone = pystray.Icon(
             "DropHunter",
             criar_icone("desconectado"),
@@ -133,8 +148,15 @@ class Bandeja:
         self.icone.title = self._titulo()
         self.icone.update_menu()
         self._ultimo = dict(estado)
-        if estado.get("estado") == "conectado" and anterior != "conectado":
-            self.avisar("DropHunter conectado")
+        agora = time.monotonic()
+        if estado.get("estado") == "conectado":
+            if anterior != "conectado":
+                fora = agora - (self._fora_desde if self._fora_desde is not None else agora)
+                if fora >= SEGUNDOS_FORA_PARA_AVISAR:
+                    self.avisar(f"DropHunter conectado · esteve fora por {_duracao(fora)}")
+                self._fora_desde = None
+        elif anterior == "conectado" or self._fora_desde is None:
+            self._fora_desde = agora
 
     def avisar(self, mensagem) -> None:
         try:

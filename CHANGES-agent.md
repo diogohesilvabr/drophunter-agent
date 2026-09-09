@@ -1,3 +1,19 @@
+## 4.0.5 (09/09/2026) — o aviso da bandeja so aparece quando cai de verdade
+
+Motivo: *"direto fica falando DropHunter conectado, como se tivesse caindo... esse alerta so
+tem que aparecer no Windows se ficar off por 3 min, pq se nao e muita poluicao por uns pings
+que nao chegou."*
+
+- A bandeja notificava em **toda** volta ao estado conectado, inclusive piscada de WebSocket
+  de alguns segundos. Agora guarda desde quando esta fora e so avisa se a queda passou de
+  `SEGUNDOS_FORA_PARA_AVISAR = 180`.
+- O aviso passa a dizer o tamanho do buraco: *"DropHunter conectado - esteve fora por 5 min"*.
+- Subir o app e conectar na hora nao notifica (e partida, nao volta de queda). Estado
+  intermediario (`recusado` -> `desconectado`) nao reinicia a contagem: vale o instante em
+  que saiu de conectado.
+
+O Telegram do cliente nao muda — o vigia do servidor ja tem carencia propria, maior.
+
 ## 4.0.4 (09/09/2026) — a janela cabe no quadrado e a falha de atualizacao deixa rastro
 
 Motivo: print do Diogo com o app 4.0.2 — *"olha o tamanho deste app, desproporcional"* — e
