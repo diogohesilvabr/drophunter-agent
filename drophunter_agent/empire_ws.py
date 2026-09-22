@@ -11,6 +11,7 @@ from typing import Any
 
 import socketio
 
+from drophunter_agent import sessoes
 from drophunter_agent.redact import REDATOR, Redator
 
 log = logging.getLogger("drophunter.socket")
@@ -87,6 +88,9 @@ class EmpireSocket:
         self._tarefa: asyncio.Task | None = None
         self._pausado = False
         self.estado = "desconectado"
+        #: sessão aiohttp do socket.io (4.0.7): uma pelo processo, entregue ao
+        #: engineio no lugar da que ele criava (e fechava) a cada reconexão
+        self._http = None
         self._registrar()
 
     @property
@@ -173,11 +177,31 @@ class EmpireSocket:
         if self._tarefa is None or self._tarefa.done():
             self._tarefa = asyncio.create_task(self._loop(), name="socket-empire")
 
+    def _garantir_sessao(self) -> None:
+        """Entrega a sessão única ao cliente engineio real (``sio.eio``); um cliente
+        falso (testes) não tem ``eio`` e segue sem sessão."""
+        eio = getattr(self._sio, "eio", None)
+        if eio is None or not hasattr(eio, "external_http"):
+            return
+        if self._http is None or self._http.closed:
+            self._http = sessoes.sessao(timeout_s=30)
+        if eio.http is not self._http:
+            eio.http = self._http
+            eio.external_http = True
+
+    async def fechar(self) -> None:
+        """Encerramento do processo: para o socket e fecha a sessão HTTP."""
+        await self.parar()
+        if self._http is not None and not self._http.closed:
+            await self._http.close()
+        self._http = None
+
     async def _loop(self) -> None:
         atraso = 1
         while True:
             try:
                 if self._pode_autenticar() and not self._pausado:
+                    self._garantir_sessao()
                     uid = await self.preparar()
                     await self._sio.connect(
                         "wss://trade.csgoempire.com",

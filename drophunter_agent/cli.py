@@ -28,9 +28,11 @@ from drophunter_agent.config import (
     carregar,
     garantir_senha_local,
     gerar_senha,
+    host_loopback,
     mascarar,
     salvar,
     steam64_valido,
+    validar_server_url,
 )
 from drophunter_agent.redact import REDATOR
 
@@ -162,6 +164,12 @@ def cmd_init(
         server_url = SERVER_URL_PADRAO
     else:
         server_url = input(f"URL do servidor [{SERVER_URL_PADRAO}]: ").strip() or SERVER_URL_PADRAO
+        try:
+            server_url = validar_server_url(server_url)
+        except ConfigInvalida as exc:
+            # 4.0.7: ws:// (sem TLS) so no loopback — o gateway na mesma maquina.
+            print(f"ERRO: {exc}", file=sys.stderr)
+            return 2
     licenca = _pedir_segredo("Licenca (lic_...): ")
     if not licenca:
         print(
@@ -294,6 +302,8 @@ def _testar_servidor(url: str) -> str:
         from urllib.parse import urlsplit, urlunsplit
 
         partes = urlsplit(url)
+        if partes.scheme in {"ws", "http"} and not host_loopback(partes.hostname):
+            return "RECUSADO (ws:// sem TLS só no loopback; fora dele use wss://)"
         saude = urlunsplit(
             (
                 {"wss": "https", "ws": "http"}.get(partes.scheme, partes.scheme),

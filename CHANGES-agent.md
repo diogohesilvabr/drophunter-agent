@@ -1,57 +1,22 @@
-## 4.0.6 (09/09/2026) — o instalador consegue fechar o app
+## 4.0.7 (22/09/2026) — gateway por localhost, ping tolerante, sem socket pendurado
 
-Motivo: print do Diogo instalando a 4.0.5 por cima da 4.0.2 — *"O instalador foi incapaz de
-fechar automaticamente todos os aplicativos."*, travado em "Fechando aplicativos".
+Motivo: na VM da plataforma o canal caia varias vezes por dia com `1011 keepalive ping
+timeout` (uvicorn com 20 s de tolerancia, agente sob pico de CPU dando a volta pela
+Cloudflare) e o processo acumulava ~30 sockets em CLOSE-WAIT (pool ocioso do httpx para
+Empire/Steam). Detalhe em `docs/changes-v4/AZ-agente-407-localhost-ping-vazamento.md`.
 
-A causa e nossa e e especifica: `App.ao_fechar()` devolve **False** quando existe bandeja —
-o "X" da janela minimiza em vez de fechar, que e o comportamento certo pro usuario. So que o
-Restart Manager do Inno fecha aplicativo mandando exatamente esse mesmo `WM_CLOSE`. Ele
-mandava, o app minimizava, o arquivo continuava travado, e o instalador desistia.
-
-- `CloseApplications=yes` -> **`force`** no `drophunter.iss`: o que o Restart Manager nao
-  fechar com jeito, o instalador encerra. E seguro — licenca, chaves e pagamentos pendentes
-  vao pro disco com escrita atomica, e a secao de execucao pos-instalacao reabre o app.
-- `ao_fechar` fica como esta: minimizar pra bandeja no "X" e o que o cliente espera, e o
-  evento do pywebview nao distingue "usuario clicou no X" de "instalador pediu pra fechar".
-
-## 4.0.5 (09/09/2026) — o aviso da bandeja so aparece quando cai de verdade
-
-Motivo: *"direto fica falando DropHunter conectado, como se tivesse caindo... esse alerta so
-tem que aparecer no Windows se ficar off por 3 min, pq se nao e muita poluicao por uns pings
-que nao chegou."*
-
-- A bandeja notificava em **toda** volta ao estado conectado, inclusive piscada de WebSocket
-  de alguns segundos. Agora guarda desde quando esta fora e so avisa se a queda passou de
-  `SEGUNDOS_FORA_PARA_AVISAR = 180`.
-- O aviso passa a dizer o tamanho do buraco: *"DropHunter conectado - esteve fora por 5 min"*.
-- Subir o app e conectar na hora nao notifica (e partida, nao volta de queda). Estado
-  intermediario (`recusado` -> `desconectado`) nao reinicia a contagem: vale o instante em
-  que saiu de conectado.
-
-O Telegram do cliente nao muda — o vigia do servidor ja tem carencia propria, maior.
-
-## 4.0.4 (09/09/2026) — a janela cabe no quadrado e a falha de atualizacao deixa rastro
-
-Motivo: print do Diogo com o app 4.0.2 — *"olha o tamanho deste app, desproporcional"* — e
-o botao Procurar atualizacao respondendo *"Nao consegui baixar, conferir ou instalar."*
-
-- **Janela 880x540** (era 980x720, `min_size` agora 680x420) e o cartao passa a preencher a
-  largura (`max-width: 840px`) em vez de boiar em 720px no meio de uma faixa vazia. O
-  "Conectado" cai de 30px para 24px e os espacos internos encolhem junto. Medido no mesmo
-  viewport do print, nao no olho: o estado mais cheio que a tela tem (pagamento pendente +
-  erro de atualizacao + os dois botoes extras) fecha em 396px de altura.
-- **A logo vira emblema + texto** `Drop`/`Hunter`, igual ao cabecalho do site. A `logo.png`
-  tem o "Drop" em azul-marinho, que desaparecia no fundo escuro quando reduzida a 56px de
-  altura. `assets/logo-emblema.png` entrou na lista branca de estaticos do `janela.py`.
-- **As falhas de atualizacao vao para o `drophunter.log`** com traceback. O `except Exception`
-  engolia tudo e nao sobrava rastro em canto nenhum — nem no PC do cliente, nem no servidor.
-  A mensagem na tela continua a mesma.
-
-**Sobre o erro do 4.0.2:** nao era o servidor. O GitHub redireciona download de asset de
-release para `release-assets.githubusercontent.com`, host que so entrou na lista branca no
-**4.0.3**. Todo agente 4.0.2 e anterior falha ao se atualizar por isso, e a correcao so vale
-depois de instalada — quem estiver em 4.0.2 instala uma vez pelo painel e dai em diante o
-botao funciona.
+- **`server_url` pode ser `ws://127.0.0.1:8095/api/agent/ws`** (ou `localhost`, `::1`,
+  qualquer `127.0.0.0/8`): sem TLS SO no loopback; fora dele `init`, `status` e a config
+  recusam e pedem `wss://`. Nenhum PC de cliente muda.
+- **Keepalive do canal e do nosso**: PING a cada 20 s, fecha (1006 `sem pong ha N s`) so apos
+  60 s sem nada do servidor; responde o PING do servidor. O gateway passa a tolerar 60 s
+  (unit `--ws-ping-timeout 60`); 20 + 60 < 90 s da varredura de heartbeat.
+- **Uma sessao HTTP por finalidade, viva pelo processo** (`sessoes.py`): canal, socket do
+  Empire (entregue ao engineio) e teste de licenca, com `TCPConnector` limitado e cache de
+  DNS; tudo fechado no encerramento.
+- **Poda do pool do proxy** a cada 15 s: conexao ociosa que o Empire/Steam ja fechou e
+  encerrada na hora (antes ficava em CLOSE-WAIT ate a proxima requisicao aquele host); pool
+  limitado a 8 em voo / 4 ociosas / 30 s.
 
 ## 4.0.0b5 (07/09/2026) — sem campo de 2FA e pedido pendente que sobrevive a reinicio
 

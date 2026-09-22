@@ -1,3 +1,9 @@
+# ATENCAO (07/09/2026): este arquivo aqui e COPIA DE REFERENCIA e NAO roda.
+# O build de verdade vive no repo publico do agente, github.com/diogohesilvabr/drophunter-agent,
+# em .github/workflows/build.yml na RAIZ de la — e de la que sai o instalador que o cliente
+# baixa. Este repo (drophunter) e privado: Release aqui nao serve pro cliente.
+# Mudou o workflow? Mude no repo do agente; esta copia so acompanha.
+#
 # Gera o instalador Windows, o app sem console, os binarios de linha de comando e publica
 # nos Releases. Sem segredo: usa so o GITHUB_TOKEN automatico do proprio workflow.
 #

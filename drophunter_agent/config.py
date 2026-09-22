@@ -7,6 +7,7 @@ Nao existe caminho de codigo que a mande pro servidor.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import logging
 import os
@@ -29,6 +30,52 @@ API_LOCAL_USUARIO_PADRAO = "drophunter"
 
 class ConfigInvalida(Exception):
     """Config ausente ou incompleta. A mensagem ja vem pronta pra mostrar ao usuario."""
+
+
+def host_loopback(hostname: str | None) -> bool:
+    """``localhost``, ``127.0.0.0/8`` ou ``::1``: o gateway na MESMA maquina (4.0.7).
+
+    So nesses o ``server_url`` pode ser ``ws://`` (sem TLS): o pacote nunca sai da
+    maquina. Qualquer outro host continua exigindo ``wss://``.
+    """
+    if not hostname:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def validar_server_url(valor: str) -> str:
+    """Normaliza a URL do gateway ou levanta ``ConfigInvalida`` com a mensagem pronta.
+
+    ``wss://`` (ou ``https://``, que vira ``wss://``) para qualquer host; ``ws://`` e
+    ``http://`` SO para loopback — e o caso do agente que roda na VM da plataforma
+    (``ws://127.0.0.1:8095/api/agent/ws``), que assim nao da a volta pela Cloudflare.
+    """
+    try:
+        url = urlsplit(valor)
+        _ = url.port
+    except ValueError:
+        raise ConfigInvalida("server_url inválida") from None
+    if (
+        url.scheme not in {"ws", "wss", "http", "https"}
+        or not url.hostname
+        or url.username
+        or url.password
+        or url.query
+        or url.fragment
+    ):
+        raise ConfigInvalida("server_url exige WebSocket sem credenciais, query ou fragmento")
+    if url.scheme in {"ws", "http"} and not host_loopback(url.hostname):
+        raise ConfigInvalida(
+            "server_url exige wss:// fora do loopback: ws:// (sem TLS) só vale para "
+            "127.0.0.0/8, ::1 ou localhost, quando o gateway roda na mesma máquina"
+        )
+    esquema = {"https": "wss", "http": "ws"}.get(url.scheme, url.scheme)
+    return urlunsplit((esquema, url.netloc, url.path.rstrip("/") or "/api/agent/ws", "", ""))
 
 
 def diretorio_config() -> Path:
@@ -87,26 +134,7 @@ class Config:
                 + ", ".join(faltando)
                 + f" em {self.caminho or caminho_config()}. Rode 'drophunter-agent init'."
             )
-        try:
-            url = urlsplit(self.server_url)
-            _ = url.port
-        except ValueError:
-            raise ConfigInvalida("server_url inválida") from None
-        if (
-            url.scheme not in {"ws", "wss", "http", "https"}
-            or not url.hostname
-            or url.username
-            or url.password
-            or url.query
-            or url.fragment
-        ):
-            raise ConfigInvalida("server_url exige WebSocket sem credenciais, query ou fragmento")
-        if url.scheme in {"ws", "http"} and url.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            raise ConfigInvalida("server_url exige wss fora do loopback")
-        esquema = {"https": "wss", "http": "ws"}.get(url.scheme, url.scheme)
-        self.server_url = urlunsplit(
-            (esquema, url.netloc, url.path.rstrip("/") or "/api/agent/ws", "", "")
-        )
+        self.server_url = validar_server_url(self.server_url)
         if self.steam_id64 and (
             len(self.steam_id64) != 17
             or not self.steam_id64.isascii()

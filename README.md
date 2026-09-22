@@ -98,7 +98,7 @@ somente `/saude`, sem abrir outro canal que derrubaria a instância em execuçã
 `run` fica em primeiro plano; Ctrl+C encerra.
 
 ```toml
-server_url = "wss://www.drophunter.com.br/api/agent/ws"
+server_url = "wss://www.drophunter.com.br/api/agent/ws"   # ws:// só para loopback (gateway na mesma máquina)
 licenca = "lic_..."
 empire_api_key = "..."
 steam_api_key = ""                    # opcional

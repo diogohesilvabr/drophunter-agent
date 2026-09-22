@@ -15,6 +15,10 @@ from drophunter_agent.listabranca import BASES, Recusado, validar
 from drophunter_agent.redact import MASCARA, REDATOR, Redator
 
 LIMITE_CORPO = 1024 * 1024
+#: pool HTTP do proxy: até 8 em voo (o semáforo), 4 ociosas guardadas, 30 s de vida
+LIMITE_CONEXOES = 8
+LIMITE_OCIOSAS = 4
+OCIOSA_EXPIRA_S = 30.0
 
 
 class Proxy:
@@ -24,8 +28,19 @@ class Proxy:
         for segredo in cfg.segredos():
             self.redator.adicionar(segredo)
             REDATOR.adicionar(segredo)
+        # 4.0.7: pool pequeno. Conexão ociosa que o Empire/Steam fecha do lado deles
+        # só era percebida na próxima requisição àquele host (até lá, CLOSE-WAIT);
+        # ``podar_ociosas`` (chamada pelo canal a cada ``PODA_S``) fecha antes.
         self._client = httpx.AsyncClient(
-            transport=transport, follow_redirects=False, trust_env=False, timeout=20
+            transport=transport,
+            follow_redirects=False,
+            trust_env=False,
+            timeout=20,
+            limits=httpx.Limits(
+                max_connections=LIMITE_CONEXOES,
+                max_keepalive_connections=LIMITE_OCIOSAS,
+                keepalive_expiry=OCIOSA_EXPIRA_S,
+            ),
         )
         self._semaforo = asyncio.Semaphore(8)
         self._online = False
@@ -47,6 +62,29 @@ class Proxy:
     async def close(self) -> None:
         self.desconectar()
         await self._client.aclose()
+
+    def conexoes_do_pool(self) -> list:
+        """As conexões vivas no pool do httpx (lista vazia com transporte falso)."""
+        transporte = getattr(self._client, "_transport", None)
+        pool = getattr(transporte, "_pool", None)
+        return list(getattr(pool, "connections", None) or [])
+
+    async def podar_ociosas(self) -> int:
+        """Fecha conexão ociosa expirada ou que o servidor já encerrou; devolve quantas.
+
+        O httpcore só faz isso ao atender a PRÓXIMA requisição do pool; sem tráfego
+        para a Steam, por exemplo, o socket ficava em CLOSE-WAIT indefinidamente.
+        A conexão fechada aqui é descartada pelo pool na próxima requisição.
+        """
+        fechadas = 0
+        for conexao in self.conexoes_do_pool():
+            try:
+                if conexao.is_idle() and conexao.has_expired():
+                    await conexao.aclose()
+                    fechadas += 1
+            except Exception:  # noqa: BLE001 - conexão em estado estranho: deixa o pool cuidar
+                continue
+        return fechadas
 
     async def metadata(self) -> dict:
         """Só o handshake local chama isto, depois de abrir o canal autenticado."""

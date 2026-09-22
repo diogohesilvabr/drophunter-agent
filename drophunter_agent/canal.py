@@ -13,7 +13,7 @@ import uuid
 
 import aiohttp
 
-from drophunter_agent import __version__
+from drophunter_agent import __version__, sessoes
 from drophunter_agent.config import Config, salvar, steam64_valido
 from drophunter_agent.empire_ws import EmpireSocket
 from drophunter_agent.fingerprint import fingerprint
@@ -30,6 +30,19 @@ log = logging.getLogger("drophunter.canal")
 #: (hello, heartbeat, log, pagamento) continua com a redacao completa.
 QUADROS_DE_DADO = frozenset({"http_response", "ws_event", "ext_request"})
 
+#: Keepalive do canal (4.0.7). O agente manda PING a cada ``PING_S`` e só derruba o
+#: canal depois de ``SEM_PONG_S`` sem receber NADA do servidor (pong ou quadro).
+#: Antes o ``heartbeat=20`` do aiohttp fechava com 10 s sem pong (metade do
+#: intervalo) e, do outro lado, o uvicorn fechava com ``1011 keepalive ping timeout``
+#: aos 20 s — sob pico de CPU (relé do feed) e latência da Cloudflare o pong
+#: atrasava e o canal caía. O gateway fica coerente: pinga a cada 20 s e tolera 60 s
+#: (``deploy/drophunter-plataforma.service``), e só declara offline sem heartbeat
+#: de aplicação há 90 s (``OFFLINE_APOS_S``) — sempre DEPOIS do transporte.
+PING_S = 20.0
+SEM_PONG_S = 60.0
+#: Poda do pool HTTP do proxy (conexão ociosa que o Empire/Steam já fechou).
+PODA_S = 15.0
+
 
 class CanalOffline(ConnectionError):
     """A extensão deve reter as ofertas enquanto não houver canal."""
@@ -42,11 +55,27 @@ class FechoCanal(ConnectionError):
 
 
 class Canal:
-    def __init__(self, cfg: Config, *, proxy: Proxy, feed: EmpireSocket, sleep=None, jitter=None):
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        proxy: Proxy,
+        feed: EmpireSocket,
+        sleep=None,
+        jitter=None,
+        ping_s: float | None = None,
+        sem_pong_s: float | None = None,
+    ):
         self.cfg, self.proxy, self.feed = cfg, proxy, feed
         self.redator = proxy.redator
         self._sleep = sleep or asyncio.sleep
         self._jitter = jitter or random.random
+        self._ping_s = float(ping_s or PING_S)
+        self._sem_pong_s = float(sem_pong_s or SEM_PONG_S)
+        #: monotonic do último quadro/pong recebido nesta conexão
+        self._ultimo_sinal = 0.0
+        #: a sessão HTTP do canal (uma pelo processo; lida por testes)
+        self.sessao_http = None
         self._ws = None
         self._pronto = asyncio.Event()
         self._encerrar = asyncio.Event()
@@ -87,12 +116,12 @@ class Canal:
         atraso = 1
         trace = aiohttp.TraceConfig()
         trace.on_request_redirect.append(self._sem_redirect)
+        # Uma sessão pelo processo inteiro: reconectar reaproveita o conector; o
+        # WebSocket anterior já foi fechado pelo ``async with`` de ``_sessao``.
+        self.sessao_http = sessoes.sessao(timeout_s=30, trace=trace)
+        podador = asyncio.create_task(self._podar_conexoes())
         try:
-            async with aiohttp.ClientSession(
-                trace_configs=[trace],
-                trust_env=False,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as session:
+            async with self.sessao_http as session:
                 while not self._encerrar.is_set():
                     espera = None
                     self._teve_hello = False
@@ -144,8 +173,21 @@ class Canal:
                     self.retomar_em = time.time() + espera
                     await self._esperar(espera)
         finally:
+            podador.cancel()
+            await asyncio.gather(podador, return_exceptions=True)
             await self.feed.parar()
+            await self.feed.fechar()
             await self.proxy.close()
+
+    async def _podar_conexoes(self) -> None:
+        """A cada ``PODA_S`` fecha conexão ociosa do proxy que o outro lado já
+        encerrou (ficava em CLOSE-WAIT até a próxima requisição àquele host)."""
+        while True:
+            await asyncio.sleep(PODA_S)
+            try:
+                await self.proxy.podar_ociosas()
+            except Exception as exc:  # noqa: BLE001 - poda nunca derruba o canal
+                log.debug("poda do pool falhou: %s", type(exc).__name__)
 
     async def _esperar(self, segundos) -> None:
         sono = asyncio.create_task(self._sleep(segundos))
@@ -160,18 +202,24 @@ class Canal:
             await asyncio.gather(sono, parar, return_exceptions=True)
 
     async def _sessao(self, session) -> None:
+        # ``autoping=False`` + ``heartbeat=None``: o keepalive é o nosso
+        # (``_vigiar_pong``), com tolerância de ``SEM_PONG_S``; o PING do servidor é
+        # respondido em ``_receber``.
         async with session.ws_connect(
             self.cfg.server_url,
             headers={"Authorization": f"Bearer {self.cfg.licenca}"},
-            heartbeat=20,
+            autoping=False,
+            heartbeat=None,
             max_msg_size=2 * 1024 * 1024,
         ) as ws:
             self._ws = ws
+            self._ultimo_sinal = time.monotonic()
             self._hello_enviado = False
             self.proxy.conectar()
             tarefas = [
                 asyncio.create_task(self._receber()),
                 asyncio.create_task(self._operar()),
+                asyncio.create_task(self._vigiar_pong()),
                 asyncio.create_task(self._encerrar.wait()),
             ]
             try:
@@ -241,9 +289,19 @@ class Canal:
         async with self._envio:
             await self._ws.send_str(json.dumps(limpo, ensure_ascii=False, allow_nan=False))
 
+    async def _vigiar_pong(self) -> None:
+        """PING a cada ``ping_s``; ``sem_pong_s`` sem sinal nenhum do servidor fecha."""
+        while True:
+            await asyncio.sleep(self._ping_s)
+            silencio = time.monotonic() - self._ultimo_sinal
+            if silencio > self._sem_pong_s:
+                raise FechoCanal(1006, f"sem pong há {int(silencio)} s")
+            await self._ws.ping()
+
     async def _receber(self) -> None:
         while True:
             msg = await self._ws.receive()
+            self._ultimo_sinal = time.monotonic()
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     quadro = json.loads(msg.data)
@@ -252,6 +310,8 @@ class Canal:
                 if not isinstance(quadro, dict):
                     raise FechoCanal(1008, "quadro precisa ser objeto")
                 await self._despachar(quadro)
+            elif msg.type == aiohttp.WSMsgType.PING:
+                await self._ws.pong(msg.data)
             elif msg.type in (
                 aiohttp.WSMsgType.CLOSE,
                 aiohttp.WSMsgType.CLOSED,
@@ -468,11 +528,7 @@ async def testar_licenca(licenca, *, server_url=None, sessao=None):
 
     trace = aiohttp.TraceConfig()
     trace.on_request_redirect.append(_sem_redirect)
-    abrir = sessao or (
-        lambda: aiohttp.ClientSession(
-            trust_env=False, trace_configs=[trace], timeout=aiohttp.ClientTimeout(total=15)
-        )
-    )
+    abrir = sessao or (lambda: sessoes.sessao(timeout_s=15, trace=trace))
     try:
         async with (
             abrir() as session,
