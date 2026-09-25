@@ -1,3 +1,18 @@
+## 4.0.8 (25/09/2026) — socket do Empire nao fica conectado e cego
+
+Motivo: 24/09 18:52 UTC um `429 Too Many Requests` no `/metadata/socket` estourou dentro do
+handler `init` do socket.io ("Task exception was never retrieved"). O `identify` nunca saiu e
+o socket ficou 9h30 conectado sem `new_item` (conta sem decidir nada). Detalhe em
+`docs/changes-v4/BC-feed-cego.md`.
+
+- **Nenhum handler do socket deixa excecao escapar**: todos passam por `_on`, que loga uma
+  linha e segue (o vigia abaixo refaz a conexao quando precisa).
+- **Metadata no `init` com espera crescente**: 5, 15, 30, 60 s (`Retry-After` manda, teto
+  120 s). Loga no comeco do episodio e no fim, nao por tentativa. Esgotou: derruba e refaz
+  a conexao do zero (metadata novo, backoff do laco).
+- **Vigia do socket** a cada 15 s: conectado sem `authenticated: true` ha 3 min, ou
+  identificado e sem `new_item` ha 5 min (outros eventos nao contam), derruba e reconecta.
+
 ## 4.0.7 (22/09/2026) — gateway por localhost, ping tolerante, sem socket pendurado
 
 Motivo: na VM da plataforma o canal caia varias vezes por dia com `1011 keepalive ping

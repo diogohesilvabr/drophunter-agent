@@ -16,6 +16,28 @@ from drophunter_agent.redact import REDATOR, Redator
 
 log = logging.getLogger("drophunter.socket")
 
+#: 4.0.8: esperas entre tentativas do metadata no ``init`` (``Retry-After`` manda, com teto)
+ESPERAS_METADATA_S = (5, 15, 30, 60)
+TETO_ESPERA_S = 120.0
+#: vigia do socket: conectado sem ``identify`` confirmado / sem ``new_item`` = refaz do zero
+VIGIA_S = 15.0
+IDENTIFY_LIMITE_S = 180.0
+SEM_ITEM_LIMITE_S = 300.0
+
+
+def _retry_after(exc: Exception) -> float | None:
+    resposta = getattr(exc, "response", None)
+    try:
+        return float(resposta.headers["retry-after"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _motivo(exc: Exception) -> str:
+    resposta = getattr(exc, "response", None)
+    status = getattr(resposta, "status_code", None)
+    return f"HTTP {status}" if status else type(exc).__name__
+
 
 class BufferEventos:
     def __init__(self, *, relogio=time.monotonic, max_eventos=20000, max_bytes=16 * 1024 * 1024):
@@ -76,8 +98,23 @@ class EmpireSocket:
         sio_factory=None,
         pode_autenticar=lambda: True,
         buffer=None,
+        relogio=time.monotonic,
+        dormir=asyncio.sleep,
+        vigia_s=VIGIA_S,
+        identify_limite_s=IDENTIFY_LIMITE_S,
+        sem_item_limite_s=SEM_ITEM_LIMITE_S,
     ):
         self._metadata = metadata
+        self._relogio = relogio
+        self._dormir = dormir
+        self._vigia_s = vigia_s
+        self._identify_limite_s = identify_limite_s
+        self._sem_item_limite_s = sem_item_limite_s
+        #: 4.0.8: marcos do vigia (``_relogio``) e o pedido de refazer a conexão
+        self._conectou_em: float | None = None
+        self._identificou_em: float | None = None
+        self._ultimo_item_novo = 0.0
+        self._derrubar: str | None = None
         self.redator = redator
         self._pode_autenticar = pode_autenticar
         self.buffer = buffer or BufferEventos()
@@ -115,12 +152,16 @@ class EmpireSocket:
 
     def _estado(self, estado: str, motivo="") -> None:
         self.estado = estado
+        if estado == "conectado":
+            self._identificou_em = self._relogio()
         if not self._pausado:
             self.buffer.adicionar(
                 {"t": "ws_status", "estado": estado, "motivo": self.redator.texto(motivo)}
             )
 
     def _evento(self, evento: str, dados: Any) -> None:
+        if evento == "new_item":
+            self._ultimo_item_novo = self._relogio()
         if not self._pausado:
             self.redator.registrar_credenciais(dados)
             self.buffer.adicionar(
@@ -129,30 +170,96 @@ class EmpireSocket:
                 )
             )
 
+    def _on(self, evento: str):
+        """``@self._sio.on`` que não deixa exceção escapar (4.0.8).
+
+        O socket.io roda cada handler numa task solta: exceção ali vira só
+        "Task exception was never retrieved" e o handler morre calado. Foi assim que um
+        429 no metadata deixou o socket 9h30 conectado sem ``identify`` (24/09/2026).
+        """
+
+        def registrar(fn):
+            async def blindado(*args):
+                try:
+                    await fn(*args)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - o vigia refaz a conexão se preciso
+                    log.warning(
+                        "Evento %s do socket Empire falhou: %s",
+                        evento,
+                        self.redator.texto(_motivo(exc)),
+                    )
+
+            return self._sio.on(evento, namespace="/trade")(blindado)
+
+        return registrar
+
+    async def _autenticar(self) -> bool:
+        """Metadata + validação com espera crescente; False = esgotou (conexão será refeita).
+
+        Loga no começo do episódio e no fim, nunca por tentativa."""
+        esperas = list(ESPERAS_METADATA_S)
+        falhas = 0
+        while True:
+            try:
+                self._auth = await self._metadata()
+                await self.preparar()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._auth = None
+                falhas += 1
+                motivo = self.redator.texto(_motivo(exc))
+                if not esperas or self._pausado:
+                    log.error(
+                        "Autenticação do socket Empire esgotou (%d tentativas, %s); "
+                        "refazendo a conexão (metadata)",
+                        falhas,
+                        motivo,
+                    )
+                    return False
+                espera = min(_retry_after(exc) or esperas[0], TETO_ESPERA_S)
+                esperas.pop(0)
+                if falhas == 1:
+                    log.warning(
+                        "Metadata do socket Empire falhou (%s); tentando de novo com espera "
+                        "crescente, 1a em %ss",
+                        motivo,
+                        espera,
+                    )
+                await self._dormir(espera)
+                continue
+            if falhas:
+                log.info("Socket Empire autenticado após %d falha(s)", falhas)
+            return True
+
     def _registrar(self) -> None:
         ns = "/trade"
 
-        @self._sio.on("connect", namespace=ns)
+        @self._on("connect")
         async def conectado(*args):
+            self._conectou_em = self._relogio()
+            self._identificou_em = None
             self._estado("autenticando")
 
-        @self._sio.on("disconnect", namespace=ns)
+        @self._on("disconnect")
         async def desconectado(*args):
             self._estado("desconectado", args[0] if args else "")
 
-        @self._sio.on("connect_error", namespace=ns)
+        @self._on("connect_error")
         async def erro(*args):
             self._estado("desconectado", "falha na conexão")
 
-        @self._sio.on("init", namespace=ns)
+        @self._on("init")
         async def iniciar(dados):
             self._evento("init", dados)
             if not isinstance(dados, dict) or self._pausado:
                 return
             if dados.get("authenticated") is False:
-                if self._pode_autenticar():
-                    self._auth = await self._metadata()
-                    await self.preparar()
+                if self._pode_autenticar() and not await self._autenticar():
+                    self._derrubar = "autenticação esgotada"
+                    return
                 if self._auth:
                     await self._sio.emit(
                         "identify",
@@ -168,9 +275,37 @@ class EmpireSocket:
                 await self._sio.emit("filters", {}, namespace=ns)
                 self._estado("conectado")
 
-        @self._sio.on("*", namespace=ns)
+        @self._on("*")
         async def evento(event, *args):
             self._evento(event, args[0] if len(args) == 1 else list(args))
+
+    def _motivo_para_refazer(self) -> str | None:
+        if self._derrubar:
+            return self._derrubar
+        agora = self._relogio()
+        if self.estado != "conectado":
+            if (
+                self._conectou_em is not None
+                and agora - self._conectou_em > self._identify_limite_s
+            ):
+                return f"sem identify confirmado há {int(agora - self._conectou_em)} s"
+            return None
+        desde = max(self._ultimo_item_novo, self._identificou_em or 0.0)
+        if agora - desde > self._sem_item_limite_s:
+            return f"sem new_item há {int(agora - desde)} s"
+        return None
+
+    async def _vigiar(self) -> None:
+        """Socket conectado mas cego (sem ``identify`` ou sem ``new_item``): derruba para
+        o ``_loop`` refazer tudo do zero (metadata novo)."""
+        while True:
+            await asyncio.sleep(self._vigia_s)
+            motivo = self._motivo_para_refazer()
+            if motivo:
+                log.warning("Socket Empire cego (%s); refazendo a conexão", motivo)
+                self._auth = None
+                await self._sio.disconnect()
+                return
 
     async def iniciar(self) -> None:
         self._pausado = False
@@ -211,7 +346,13 @@ class EmpireSocket:
                         headers={"User-Agent": f"{uid} API Bot"},
                     )
                     atraso = 1
-                    await self._sio.wait()
+                    self._derrubar = None
+                    vigia = asyncio.create_task(self._vigiar(), name="vigia-socket-empire")
+                    try:
+                        await self._sio.wait()
+                    finally:
+                        vigia.cancel()
+                        await asyncio.gather(vigia, return_exceptions=True)
                 else:
                     self.buffer._podar()
             except asyncio.CancelledError:
